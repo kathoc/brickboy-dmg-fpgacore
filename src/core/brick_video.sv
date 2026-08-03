@@ -23,8 +23,10 @@
 // lcd.v used. Fast-forward breaks the lockstep and may roll; normal play never
 // does.
 //
-// This milestone draws the plain image: shade -> 4-level grey, margin dark.
-// The brickboy panel pipeline replaces the scanout side next.
+// M4: the scanout no longer reads shades - it reads rows that brick_color has
+// pushed through the brickboy colour stage (palette, bleed, density, offTint,
+// crosstalk, gamma, saturation, warm, tone, black lift), processed one native
+// row ahead of display into a pair of RGB888 line buffers.
 
 module brick_video (
 	input  wire        clk_sys,      // 33.554432 MHz; also the pixel clock domain
@@ -52,6 +54,11 @@ reg [1:0]  fb[FB_SIZE];
 reg [14:0] wptr;
 reg        lcd_off_r;
 
+// read port for the colour stage
+wire [14:0] col_fb_addr;
+reg  [1:0]  col_fb_q;
+always @(posedge clk_sys) col_fb_q <= fb[col_fb_addr];
+
 wire lcd_off = ~lcd_on || (lcd_mode == 2'd1);
 
 always @(posedge clk_sys) begin
@@ -70,6 +77,14 @@ end
 localparam H_TOT = 896, V_TOT = 627;
 localparam GX0 = 208, GY0 = 35;             // game area top-left
 
+// ------------------------------------------------------------ colour stage ---
+// Row triggers: row 0 is prepared two raster lines before the game area, and
+// each subsequent row on the first raster line of the row before it - four
+// lines (3584 clocks) ahead of when the scanout needs it, against a stage that
+// takes ~490.
+
+wire [7:0] disp_row = (v - GY0) >> 2;
+
 reg [9:0] h, v;
 reg       vsync_r;
 
@@ -86,7 +101,31 @@ always @(posedge clk_sys) begin
 	end
 end
 
-// Fetch pipeline: the frame RAM has a registered address and the colour is
+wire start_frame = (v == GY0 - 2) && (h == 0);
+wire row_tick    = (v >= GY0) && (v < GY0 + 572) && (((v - GY0) & 10'd3) == 0) && (h == 0);
+
+wire [7:0]  lb_waddr;
+wire [23:0] lb_wdata;
+wire        lb_wren, lb_wbank;
+
+brick_color color (
+	.clk         ( clk_sys      ),
+	.start_frame ( start_frame  ),
+	.row_tick    ( row_tick     ),
+	.row_disp    ( disp_row     ),
+	.fb_addr     ( col_fb_addr  ),
+	.fb_q        ( col_fb_q     ),
+	.lb_waddr    ( lb_waddr     ),
+	.lb_wdata    ( lb_wdata     ),
+	.lb_wren     ( lb_wren      ),
+	.lb_wbank    ( lb_wbank     )
+);
+
+// processed rows, double-buffered by native-row parity
+reg [23:0] lb[0:511];
+always @(posedge clk_sys) if (lb_wren) lb[{lb_wbank, lb_waddr}] <= lb_wdata;
+
+// Fetch pipeline: the line buffer has a registered address and the colour is
 // registered once more, so coordinates are taken 2 clocks ahead. The lookahead
 // only wraps a line inside blanking (H_BEG >= 2), where it does not matter.
 
@@ -98,27 +137,16 @@ wire       pre_game = (h_pre >= GX0) && (h_pre < GX0 + 640) &&
 wire [7:0] nx = (h_pre - GX0) >> 2;         // native dot 0..159
 wire [7:0] ny = (v - GY0) >> 2;             // native dot 0..143
 
-reg [1:0]  fb_q;
+reg [23:0] lb_q;
 reg        p1_game;
 always @(posedge clk_sys) begin
-	fb_q    <= fb[{ny, 7'b0} + {2'b0, ny, 5'b0} + nx];   // ny*160 + nx
+	lb_q    <= lb[{ny[0], nx}];
 	p1_game <= pre_game;
-end
-
-// Milestone palette: plain 4-level grey; module border a dark neutral.
-reg [7:0] shade;
-always @(*) begin
-	case (fb_q)
-		2'd0: shade = 8'hFF;
-		2'd1: shade = 8'hAA;
-		2'd2: shade = 8'h55;
-		2'd3: shade = 8'h00;
-	endcase
 end
 
 always @(posedge clk_sys) begin
 	de  <= p1_game;
-	rgb <= p1_game ? {3{shade}} : 24'h000000;
+	rgb <= p1_game ? lb_q : 24'h000000;
 
 	// Single-cycle sync pulses; hs sits at h=8 so it never overlaps vs.
 	vs <= (v == 0) && (h == 0);
