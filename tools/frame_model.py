@@ -58,4 +58,36 @@ def render(shades, grain=True):
         v = out.astype(np.int64)
         d = (v * 8 * g[:, :, None]) >> 15
         out = np.clip(v + d, 0, 255).astype(np.uint8)
-    return out
+    return finish(out)
+
+
+CX, CY, HALF = 19661, 47186, 32768
+SX, SY = 99864, 110376
+K_GRAD = K_VIGN = 10486
+K_FGRAIN = 3
+LUT_SQRT = [min(int(round((min((i + 0.5) / 256, 1.0)) ** 0.5 * 65536)), 65535)
+            for i in range(256)]
+
+
+def finish(img):
+    """brick_finish: brickboy's FRAG_PASSTHROUGH gradient, vignette and matte
+    grain, in the same fixed point the RTL uses."""
+    h, w, _ = img.shape
+    gx, gy = np.meshgrid(np.arange(w), np.arange(h))
+    ux = ((gx + 16) * SX >> 10) & 0xFFFF
+    uy = (65535 - ((gy + 16) * SY >> 10)) & 0xFFFF
+    dx, dy = ux - CX, uy - CY
+    vx, vy = ux - HALF, uy - HALF
+    r2s = np.minimum((dx * dx + dy * dy) >> 16, 65535)
+    prox = 65536 - np.array(LUT_SQRT)[r2s >> 8]
+    grad = ((prox - 32768) * K_GRAD) >> 16
+    vign = (((vx * vx + vy * vy) >> 16) * K_VIGN) >> 16
+    fac = 65536 + grad - vign
+
+    hsh = bake_grain.hash2(gx, gy, 0x5bd1e995 & 0xFF)   # stand-in for mix32
+    fg = np.floor(hsh * 256).astype(np.int64) - 128
+
+    v = img.astype(np.int64)
+    p = (v * fac[:, :, None] + 32768) >> 16
+    q = p + ((K_FGRAIN * fg) >> 7)[:, :, None]
+    return np.clip(q, 0, 255).astype(np.uint8)

@@ -273,13 +273,31 @@ brick_grid grid (
 	.out_rgb  ( grid_rgb )
 );
 
-// brick_grid adds 6 cycles, so de follows it
-reg [5:0] game_dly;
-always @(posedge clk_sys) game_dly <= {game_dly[4:0], p1_game};
+// Screen-space finish: the reflection gradient, the corner vignette and the
+// matte grain, laid over the finished panel exactly as brickboy's present pass
+// does. Adds 4 cycles.
+//
+// The coordinates come straight off h_pre rather than being delayed to match
+// the pixel leaving brick_grid, so the finish field sits about seven pixels
+// ahead of the panel under it. Both terms vary over the whole screen and the
+// matte grain is white noise, so nothing about that is observable; delaying
+// two 10-bit counters through the grid pipeline would cost more than it buys.
+wire [23:0] fin_rgb;
+brick_finish finish (
+	.clk     ( clk_sys  ),
+	.gx      ( h_pre - GX0 ),
+	.gy      ( v - GY0     ),
+	.in_rgb  ( grid_rgb ),
+	.out_rgb ( fin_rgb  )
+);
+
+// brick_grid adds 6 cycles and brick_finish 4, so de follows both
+reg [9:0] game_dly;
+always @(posedge clk_sys) game_dly <= {game_dly[8:0], p1_game};
 
 always @(posedge clk_sys) begin
-	de  <= game_dly[5];
-	rgb <= game_dly[5] ? grid_rgb : 24'h000000;
+	de  <= game_dly[9];
+	rgb <= game_dly[9] ? fin_rgb : 24'h000000;
 
 	// Single-cycle sync pulses; hs sits at h=8 so it never overlaps vs.
 	vs <= (v == 0) && (h == 0);

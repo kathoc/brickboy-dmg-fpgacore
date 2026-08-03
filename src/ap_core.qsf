@@ -812,6 +812,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/brick_color.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/brick_ghost.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/brick_grid.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/brick_grain.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/brick_finish.sv
 set_global_assignment -name QIP_FILE apf/apf.qip
 set_global_assignment -name QIP_FILE apf/mf_ddio_bidir_12.qip
 set_global_assignment -name VERILOG_FILE core/core_bridge_cmd.v
