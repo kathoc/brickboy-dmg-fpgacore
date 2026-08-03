@@ -1084,54 +1084,25 @@ audio_mixer #(
   .audio_dac    ( audio_dac   )
 );
 
-// the lcd to vga converter
-wire ce_pix;
-wire [8:0] h_cnt, v_cnt;
-wire h_end;
+// BrickBoy video: capture + the 896x627 @ 33.554432 MHz raster.
+// One raster frame is exactly one GB frame, so the two never drift.
+wire bv_hs, bv_vs, bv_de;
+wire [23:0] bv_rgb;
 
-lcd lcd
-(
-  // serial interface
-  .clk_sys        ( clk_sys                 ),
-  .ce             ( ce_cpu                  ),
+brick_video brick_video (
+  .clk_sys     ( clk_sys        ),
+  .ce          ( ce_cpu         ),
 
-  .lcd_clkena     ( sgb_lcd_clkena          ),
-  .data           ( sgb_lcd_data            ),
-  .mode           ( sgb_lcd_mode            ),  // used to detect begin of new lines and frames
-  .on             ( sgb_lcd_on              ),
-  .lcd_vs         ( sgb_lcd_vsync           ),
-  .shadow         ( 0                       ),
+  .lcd_clkena  ( sgb_lcd_clkena ),
+  .lcd_data    ( sgb_lcd_data[1:0] ),
+  .lcd_mode    ( sgb_lcd_mode   ),
+  .lcd_on      ( sgb_lcd_on     ),
+  .lcd_vsync   ( sgb_lcd_vsync  ),
 
-  .isGBC          ( isGBC                   ),
-
-  .tint           ( |tint & ~bw_en          ),
-  .inv            ( 0                       ),
-  .originalcolors ( originalcolors          ),
-  .analog_wide    ( 0                       ),
-
-  // Palettes
-  .pal1           ( palette[127:104]        ),
-  .pal2           ( palette[103:80]         ),
-  .pal3           ( palette[79:56]          ),
-  .pal4           ( palette[55:32]          ),
-
-  .sgb_border_pix ( sgb_border_pix          ),
-  .sgb_pal_en     ( sgb_pal_en              ),
-  .sgb_en         ( sgb_border_en & sgb_en  ),
-  .sgb_freeze     ( sgb_lcd_freeze          ),
-
-  .clk_vid        ( clk_ram                 ),
-  .hs             ( video_hs_gb             ),
-  .vs             ( video_vs_gb             ),
-  .hbl            ( h_blank                 ),
-  .vbl            ( v_blank                 ),
-  .r              ( video_rgb_gb[23:16]     ),
-  .g              ( video_rgb_gb[15:8]      ),
-  .b              ( video_rgb_gb[7:0]       ),
-  .ce_pix         ( ce_pix                  ),
-  .h_cnt          ( h_cnt                   ),
-  .v_cnt          ( v_cnt                   ),
-  .h_end          ( h_end                   )
+  .hs          ( bv_hs          ),
+  .vs          ( bv_vs          ),
+  .de          ( bv_de          ),
+  .rgb         ( bv_rgb         )
 );
 
 wire [1:0] joy_p54;
@@ -1182,86 +1153,16 @@ assign sgb_lcd_freeze = 1'b0;
 assign sgb_border_pix = 16'h0;
 assign sgb_pal_en     = 1'b0;
 
-// Video
-wire h_blank;
-wire v_blank;
-wire video_hs_gb;
-wire video_vs_gb;
-wire [23:0] video_rgb_gb;
-
-reg video_de_reg;
-reg video_hs_reg;
-reg video_vs_reg;
-reg [23:0] video_rgb_reg;
-
-reg hs_prev;
-reg [2:0] hs_delay;
-reg vs_prev;
-reg de_prev;
-
-wire de = ~(h_blank || v_blank);
-
-always_ff @(posedge clk_vid) begin
-  video_hs_reg  <= 0;
-  video_de_reg  <= 0;
-  video_rgb_reg <= 24'h0;
-
-  if (de) begin
-    video_de_reg  <= 1;
-
-    video_rgb_reg <= video_rgb_gb;
-  end else if (de_prev && ~de) begin
-    video_rgb_reg <= 24'h0;
-  end
-
-  if (hs_delay > 0) begin
-    hs_delay <= hs_delay - 3'h1;
-  end
-
-  if (hs_delay == 1) begin
-    video_hs_reg <= 1;
-  end
-
-  if (~hs_prev && video_hs_gb) begin
-    // HSync went high. Delay by 3 cycles to prevent overlapping with VSync
-    hs_delay <= 7;
-  end
-
-  // Set VSync to be high for a single cycle on the rising edge of the VSync coming out of the core
-  video_vs_reg  <= ~vs_prev && video_vs_gb;
-  hs_prev       <= video_hs_gb;
-  vs_prev       <= video_vs_gb;
-  de_prev       <= de;
-end
-
+// Video output. brick_video runs on clk_sys; clk_vid is the same 33.554432 MHz
+// from the same PLL (0 deg), so forwarding it as the pixel clock keeps the
+// output registers and the DDR clock phase-related. The signals are already
+// APF-shaped: single-cycle hs/vs that never overlap, registered de/rgb.
 assign video_rgb_clock    = clk_vid;
 assign video_rgb_clock_90 = clk_vid_90;
-assign video_de           = video_de_reg;
-assign video_hs           = video_hs_reg;
-assign video_vs           = video_vs_reg;
-
-wire [7:0] lum;
-assign lum = (21 * video_rgb_reg[23:16] + 72 * video_rgb_reg[15:8] + 7 * video_rgb_reg[7:0]) / 100;
-
-always_comb begin
-  if(~video_de_reg) begin
-    if(sgb_border_en & sgb_en) begin
-      video_rgb[23:13] = 1;
-      video_rgb[12:3]  = 0;
-      video_rgb[2:0]   = 0;
-    end else begin
-      video_rgb[23:13] = 0;
-      video_rgb[12:3]  = 0;
-      video_rgb[2:0]   = 0;
-    end
-  end else begin
-    if (bw_en) begin
-      video_rgb = {lum, lum, lum};
-    end else begin
-      video_rgb = video_rgb_reg;
-    end
-  end
-end
+assign video_de           = bv_de;
+assign video_hs           = bv_hs;
+assign video_vs           = bv_vs;
+assign video_rgb          = bv_rgb;
 
 //////////////////////////////// CE ////////////////////////////////////
 

@@ -803,10 +803,10 @@ set_global_assignment -name SYSTEMVERILOG_FILE gb/audio/audio_mixer.sv
 set_global_assignment -name QIP_FILE gb/audio/audio.qip
 set_global_assignment -name VHDL_FILE gb/speedcontrol.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE gb/sdram.sv
-set_global_assignment -name VERILOG_FILE gb/lcd.v
 set_global_assignment -name VERILOG_FILE gb/gb.v
 set_global_assignment -name VERILOG_FILE gb/cart.v
 set_global_assignment -name SYSTEMVERILOG_FILE core/core_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/brick_video.sv
 set_global_assignment -name QIP_FILE apf/apf.qip
 set_global_assignment -name QIP_FILE apf/mf_ddio_bidir_12.qip
 set_global_assignment -name VERILOG_FILE core/core_bridge_cmd.v
