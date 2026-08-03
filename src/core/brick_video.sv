@@ -202,6 +202,17 @@ always @(posedge clk_sys) begin
 	p1_game <= pre_game;
 end
 
+// Grain is keyed to the output pixel, and takes one cycle, so it is generated
+// from the same coordinates the grid stage will see.
+wire [7:0] grain_q;
+brick_grain grain_gen (
+	.clk  ( clk_sys ),
+	.x    ( h_pre   ),
+	.y    ( v       ),
+	.seed ( 8'd7    ),        // dmg.json defects.seed
+	.g    ( grain_q )
+);
+
 wire [23:0] grid_rgb;
 brick_grid grid (
 	.clk      ( clk_sys  ),
@@ -211,16 +222,17 @@ brick_grid grid (
 	.ul_rgb   ( q_ul     ),
 	.sx       ( sx1      ),
 	.sy       ( sy1      ),
+	.grain    ( grain_q  ),
 	.out_rgb  ( grid_rgb )
 );
 
-// brick_grid adds 4 cycles, so de follows it
-reg [3:0] game_dly;
-always @(posedge clk_sys) game_dly <= {game_dly[2:0], p1_game};
+// brick_grid adds 6 cycles, so de follows it
+reg [5:0] game_dly;
+always @(posedge clk_sys) game_dly <= {game_dly[4:0], p1_game};
 
 always @(posedge clk_sys) begin
-	de  <= game_dly[3];
-	rgb <= game_dly[3] ? grid_rgb : 24'h000000;
+	de  <= game_dly[5];
+	rgb <= game_dly[5] ? grid_rgb : 24'h000000;
 
 	// Single-cycle sync pulses; hs sits at h=8 so it never overlaps vs.
 	vs <= (v == 0) && (h == 0);

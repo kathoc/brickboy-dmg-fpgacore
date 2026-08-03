@@ -36,6 +36,7 @@ module brick_grid (
 	input  wire [23:0] ul_rgb,     // up-left diagonal
 	input  wire [1:0]  sx,         // sub-pixel position inside the cell
 	input  wire [1:0]  sy,
+	input  wire [7:0]  grain,      // reflector sheet grain, 128 = flat
 
 	output reg  [23:0] out_rgb
 );
@@ -51,6 +52,45 @@ localparam [7:0] K_STR    = 8'd159;   // grid strength 0.62
 localparam [7:0] K_DROP   = 8'd87;    // shadowOpacity 0.34
 // shadowColor [0.397, 0.391, 0.222] x255
 localparam [7:0] DROP_R = 8'd101, DROP_G = 8'd100, DROP_B = 8'd57;
+localparam [7:0] K_PAPER = 8'd9;      // reflector grain, ~1% luminance sigma
+
+localparam bit [7:0] LUT_SS_NEAR[0:255] = '{
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd1, 8'd1, 8'd2, 8'd3, 8'd4, 8'd6, 8'd7,
+  8'd9, 8'd11, 8'd13, 8'd15, 8'd17, 8'd19, 8'd22, 8'd24, 8'd27, 8'd30, 8'd33, 8'd36, 8'd39, 8'd42, 8'd45, 8'd49,
+  8'd52, 8'd56, 8'd60, 8'd63, 8'd67, 8'd71, 8'd75, 8'd79, 8'd83, 8'd87, 8'd91, 8'd95, 8'd99, 8'd104, 8'd108, 8'd112,
+  8'd116, 8'd121, 8'd125, 8'd129, 8'd133, 8'd138, 8'd142, 8'd146, 8'd150, 8'd155, 8'd159, 8'd163, 8'd167, 8'd171, 8'd175, 8'd179,
+  8'd183, 8'd187, 8'd191, 8'd195, 8'd198, 8'd202, 8'd205, 8'd209, 8'd212, 8'd215, 8'd219, 8'd222, 8'd225, 8'd227, 8'd230, 8'd233,
+  8'd235, 8'd238, 8'd240, 8'd242, 8'd244, 8'd246, 8'd247, 8'd249, 8'd250, 8'd251, 8'd252, 8'd253, 8'd254, 8'd255, 8'd255, 8'd255,
+  8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255,
+  8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255,
+  8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255,
+  8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255
+};
+
+localparam bit [7:0] LUT_SS_FAR[0:255] = '{
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
+  8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd1, 8'd1, 8'd2, 8'd2, 8'd3, 8'd4,
+  8'd5, 8'd6, 8'd7, 8'd8, 8'd9, 8'd10, 8'd12, 8'd13, 8'd15, 8'd17, 8'd18, 8'd20, 8'd22, 8'd24, 8'd26, 8'd28,
+  8'd30, 8'd33, 8'd35, 8'd37, 8'd40, 8'd42, 8'd45, 8'd47, 8'd50, 8'd53, 8'd55, 8'd58, 8'd61, 8'd64, 8'd67, 8'd70,
+  8'd73, 8'd76, 8'd79, 8'd82, 8'd85, 8'd88, 8'd91, 8'd94, 8'd97, 8'd100, 8'd104, 8'd107, 8'd110, 8'd113, 8'd117, 8'd120,
+  8'd123, 8'd126, 8'd130, 8'd133, 8'd136, 8'd139, 8'd143, 8'd146, 8'd149, 8'd152, 8'd156, 8'd159, 8'd162, 8'd165, 8'd168, 8'd171,
+  8'd174, 8'd177, 8'd180, 8'd183, 8'd186, 8'd189, 8'd192, 8'd195, 8'd198, 8'd200, 8'd203, 8'd206, 8'd208, 8'd211, 8'd213, 8'd216,
+  8'd218, 8'd221, 8'd223, 8'd225, 8'd227, 8'd229, 8'd231, 8'd233, 8'd235, 8'd237, 8'd239, 8'd240, 8'd242, 8'd244, 8'd245, 8'd246,
+  8'd248, 8'd249, 8'd250, 8'd251, 8'd252, 8'd252, 8'd253, 8'd254, 8'd254, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255,
+  8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255,
+  8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255,
+  8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255
+};
 
 // Integral of the shader's smoothstep over each quarter of the cell at
 // pixel_size 0.80. Symmetric, so one axis table serves both.
@@ -143,20 +183,72 @@ end
 reg [23:0] grid2;
 reg [7:0]  amt2;
 
-wire [15:0] amtw = cast_d1 * (8'd255 - body1);
+// The shader thresholds the caster's darkness twice - a sharp near umbra and a
+// broad, weaker penumbra - and then suppresses the whole thing where the pixel
+// is already dark itself. A plain linear term (what this was) puts far too
+// little shadow on dark content, which leaves the ink reading greener than it
+// should, because the shadow colour is nearly neutral.
+wire [7:0]  ss_near = LUT_SS_NEAR[cast_d1];
+wire [7:0]  ss_far  = LUT_SS_FAR[cast_d1];
+wire [9:0]  ss_sum  = {2'b0, ss_near} + (({2'b0, ss_far} * 10'd115) >> 8);   // + 0.45x
+wire [7:0]  ss_cl   = (ss_sum > 10'd255) ? 8'd255 : ss_sum[7:0];
+wire [15:0] amt_w   = ss_cl * K_DROP;
 
 always @(posedge clk) begin
 	grid2 <= { mix8(e_gap[23:16], e_dot[23:16], body1),
 	           mix8(e_gap[15:8],  e_dot[15:8],  body1),
 	           mix8(e_gap[7:0],   e_dot[7:0],   body1) };
-	amt2  <= (amtw[15:8] * K_DROP) >> 8;
+	amt2  <= amt_w[15:8];
 end
 
-// ---- s2: lay the shadow ------------------------------------------------------
+// ---- s2: own-darkness suppression -------------------------------------------
+// A pixel that is dark in its own right does not show a shadow on top.
+reg [23:0] grid3;
+reg [7:0]  amt3;
+
+wire [7:0]  own    = LUT_SS_NEAR[8'd255 - luma8(grid2[23:16], grid2[15:8], grid2[7:0])];
+wire [15:0] amt_s  = amt2 * (8'd255 - own);
+
 always @(posedge clk) begin
-	out_rgb <= { mix8(grid2[23:16], DROP_R, amt2),
-	             mix8(grid2[15:8],  DROP_G, amt2),
-	             mix8(grid2[7:0],   DROP_B, amt2) };
+	grid3 <= grid2;
+	amt3  <= amt_s[15:8];
+end
+
+// ---- s3: lay the shadow, then the reflector grain ---------------------------
+// The grain is a reflectance variation of the sheet seen through the LC, so it
+// scales whatever light comes back: plain on the light shades, all but
+// invisible in the ink. brickboy bakes a texture because a GPU pays ~28 hashes
+// per fragment; one integer hash per output pixel is nearly free here, and at
+// 4x upscale one output pixel is about the measured feature size (0.3-0.5 dot).
+// Hue wobble is a third of the luminance wobble, so this is nearly achromatic.
+reg [23:0] shad4;
+reg signed [9:0] gr4;
+
+wire [23:0] shad_w = { mix8(grid3[23:16], DROP_R, amt3),
+                       mix8(grid3[15:8],  DROP_G, amt3),
+                       mix8(grid3[7:0],   DROP_B, amt3) };
+
+always @(posedge clk) begin
+	shad4 <= shad_w;
+	gr4   <= $signed({2'b0, grain}) - 10'sd128;
+end
+
+wire [15:0] gm_r = shad4[23:16] * K_PAPER;
+wire [15:0] gm_g = shad4[15:8]  * K_PAPER;
+wire [15:0] gm_b = shad4[7:0]   * K_PAPER;
+
+function automatic [7:0] grainy(input [7:0] v, input [15:0] scaled, input signed [9:0] g);
+	reg signed [27:0] d;
+	begin
+		d = ($signed({12'b0, scaled}) * g) >>> 15;
+		grainy = sat8($signed({12'b0, v}) + d);
+	end
+endfunction
+
+always @(posedge clk) begin
+	out_rgb <= { grainy(shad4[23:16], gm_r, gr4),
+	             grainy(shad4[15:8],  gm_g, gr4),
+	             grainy(shad4[7:0],   gm_b, gr4) };
 end
 
 endmodule
