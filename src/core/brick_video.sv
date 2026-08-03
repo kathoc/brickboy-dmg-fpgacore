@@ -6,9 +6,14 @@
 // frame with no drift and no resampling: 59.7275 Hz on both sides.
 //
 // Geometry (output pixels):
-//   module   672 x 608   the whole LCD module, 1 GB dot = 4x4
-//   game     640 x 576   inset 16 px on every side (brickboy PANEL_MARGIN 4)
-//   blanking 224 x 19
+//   active   640 x 576   the game area, 1 GB dot = 4x4
+//   blanking 256 x 51
+//
+// The module margin (exposed reflector + printed mask) is NOT part of the
+// active area. This matches brickboy's own default, Fill mode: the game runs
+// edge to edge and the module border falls off-screen - on the Pocket, the
+// bezel plays that part. Shadows cast by the outermost dots get clipped at the
+// edge, exactly as they do in brickboy's Fill mode.
 //
 // Phase: h/v reset on the GB's vsync (start of vblank). The GB then spends 10
 // lines of vblank before drawing row 0, while the raster spends V_BEG+16 lines
@@ -63,10 +68,7 @@ end
 // ----------------------------------------------------------------- raster ---
 
 localparam H_TOT = 896, V_TOT = 627;
-localparam H_BEG = 192, V_BEG = 19;         // module top-left
-localparam MARGIN = 16;                     // exposed module border, output px
-localparam GX0 = H_BEG + MARGIN;            // game area
-localparam GY0 = V_BEG + MARGIN;
+localparam GX0 = 208, GY0 = 35;             // game area top-left
 
 reg [9:0] h, v;
 reg       vsync_r;
@@ -92,18 +94,15 @@ wire [9:0] h_pre = (h >= H_TOT - 2) ? h - (H_TOT - 2) : h + 10'd2;
 
 wire       pre_game = (h_pre >= GX0) && (h_pre < GX0 + 640) &&
                       (v >= GY0)     && (v < GY0 + 576);
-wire       pre_mod  = (h_pre >= H_BEG) && (h_pre < H_BEG + 672) &&
-                      (v >= V_BEG)    && (v < V_BEG + 608);
 
 wire [7:0] nx = (h_pre - GX0) >> 2;         // native dot 0..159
 wire [7:0] ny = (v - GY0) >> 2;             // native dot 0..143
 
 reg [1:0]  fb_q;
-reg        p1_game, p1_mod;
+reg        p1_game;
 always @(posedge clk_sys) begin
 	fb_q    <= fb[{ny, 7'b0} + {2'b0, ny, 5'b0} + nx];   // ny*160 + nx
 	p1_game <= pre_game;
-	p1_mod  <= pre_mod;
 end
 
 // Milestone palette: plain 4-level grey; module border a dark neutral.
@@ -118,10 +117,8 @@ always @(*) begin
 end
 
 always @(posedge clk_sys) begin
-	de  <= p1_mod;
-	rgb <= !p1_mod  ? 24'h000000 :
-	       !p1_game ? 24'h303028 :            // border placeholder
-	                  {3{shade}};
+	de  <= p1_game;
+	rgb <= p1_game ? {3{shade}} : 24'h000000;
 
 	// Single-cycle sync pulses; hs sits at h=8 so it never overlaps vs.
 	vs <= (v == 0) && (h == 0);
