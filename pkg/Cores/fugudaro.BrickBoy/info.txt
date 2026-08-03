@@ -1,0 +1,3 @@
+BrickBoy LCD simulation build.
+Adds DMG panel crosstalk, pixel ghosting and dead segment lines.
+Based on openfpga-GBC by budude2, ported from Gameboy_MiSTer.

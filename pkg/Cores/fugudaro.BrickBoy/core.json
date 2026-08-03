@@ -1,0 +1,36 @@
+{
+  "core": {
+    "magic": "APF_VER_1",
+    "metadata": {
+      "platform_ids": [
+        "gb"
+      ],
+      "shortname": "BrickBoy",
+      "description": "Game Boy (BrickBoy DMG)",
+      "author": "fugudaro",
+      "url": "https://github.com/kathoc/openfpga-GBC-brick",
+      "version": "0.1.0",
+      "date_release": "2026-08-01"
+    },
+    "framework": {
+      "target_product": "Analogue Pocket",
+      "version_required": "1.1",
+      "sleep_supported": true,
+      "dock": {
+        "supported": true,
+        "analog_output": false
+      },
+      "hardware": {
+        "link_port": true,
+        "cartridge_adapter": "0x01000000"
+      }
+    },
+    "cores": [
+      {
+        "name": "default",
+        "id": 0,
+        "filename": "brickboy.rbf_r"
+      }
+    ]
+  }
+}

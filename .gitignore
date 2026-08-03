@@ -1,0 +1,8 @@
+src/db/
+src/incremental_db/
+src/output_files/
+build/*.rbf*
+build/*.sof
+build/sdcard/
+__pycache__/
+*.qws
