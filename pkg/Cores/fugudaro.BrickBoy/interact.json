@@ -86,7 +86,7 @@
         "persist": true,
         "address": "0xF2000000",
         "mask": "0xFFFFF8FF",
-        "defaultval": "0x00000300",
+        "defaultval": 3,
         "options": [
           {
             "name": "-9%",
@@ -130,7 +130,7 @@
         "persist": true,
         "address": "0xF2000000",
         "mask": "0xFFFFC7FF",
-        "defaultval": "0x00001800",
+        "defaultval": 3,
         "options": [
           {
             "name": "Cool -9%",
