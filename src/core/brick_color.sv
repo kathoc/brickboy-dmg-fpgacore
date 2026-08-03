@@ -18,6 +18,7 @@
 // The weak upward bleed (0.4x) and per-column gain noise (#49) are pending,
 // to be judged against the RetroArch port.
 
+(* multstyle = "logic" *)
 module brick_color (
 	input  wire        clk,
 
@@ -301,59 +302,94 @@ always @(posedge clk) begin
 	if (f0_v) colA[f0_x] <= colA_new[21:8];
 end
 
-// f2: luma + offTint (density 0.5 folded into the constants)
+// f1b: luma. Feeding a 3-term dot product straight into a LUT and then into
+// three interpolations does not close in one hop.
+reg [7:0] c1br, c1bg, c1bb, luma1b;
+reg [9:0] field1b;
+reg [7:0] f1b_x; reg f1b_v;
+
+always @(posedge clk) begin
+	f1b_v <= f1_v; f1b_x <= f1_x;
+	c1br <= c1r; c1bg <= c1g; c1bb <= c1b;
+	field1b <= field1;
+	luma1b <= luma8(c1r, c1g, c1b);
+end
+
+// f2: offTint (density 0.5 folded into the constants)
 reg [7:0]  c2r, c2g, c2b, luma2;
 reg [9:0]  field2;
 reg [7:0]  f2_x;  reg f2_v;
 
-wire [7:0]  luma_f1 = luma8(c1r, c1g, c1b);
-wire [15:0] offm_w  = K_OFFTINT * LUT_OFFW[luma_f1];
-wire [7:0]  offm    = offm_w[15:8];
+wire [15:0] offm_w = K_OFFTINT * LUT_OFFW[luma1b];
+wire [7:0]  offm   = offm_w[15:8];
 
 always @(posedge clk) begin
-	f2_v <= f1_v; f2_x <= f1_x;
-	luma2 <= luma_f1;
-	field2 <= field1;
-	c2r <= mix8(c1r, PAL3[23:16], offm);
-	c2g <= mix8(c1g, PAL3[15:8],  offm);
-	c2b <= mix8(c1b, PAL3[7:0],   offm);
+	f2_v <= f1b_v; f2_x <= f1b_x;
+	luma2 <= luma1b;
+	field2 <= field1b;
+	c2r <= mix8(c1br, PAL3[23:16], offm);
+	c2g <= mix8(c1bg, PAL3[15:8],  offm);
+	c2b <= mix8(c1bb, PAL3[7:0],   offm);
 end
 
-// f3: crosstalk application
-reg [7:0]  c3r, c3g, c3b;
-reg [7:0]  f3_x;  reg f3_v;
+// f2b: how much the crosstalk darkens this pixel. The grey-field weight, the
+// clamp and the signed term are a chain of three multiplies; applying them to
+// the colour in the same hop was the last path over budget.
+reg [7:0]  dk2;
+reg signed [9:0] sgn2;
+reg [7:0]  c2br, c2bg, c2bb;
+reg [7:0]  f2b_x; reg f2b_v;
 
 wire [7:0]  mg    = (luma2 > 8'd128) ? 8'd255 - ((luma2 - 8'd128) << 1)
                                      : 8'd255 - ((8'd128 - luma2) << 1);
 wire [15:0] gry_w = K_XT_GRAY * mg;
-wire [8:0]  gryf  = (9'd255 - K_XT_GRAY) + gry_w[15:8];      // Q0.8, <= 255
-wire [17:0] amt0  = K_XTALK * field2;                        // Q0.16
-wire [26:0] amt1  = amt0 * gryf;                             // Q0.24
-wire [10:0] amt   = amt1[26:16] ;                            // Q0.8
-wire [7:0]  dk    = (amt > {3'b0, K_XT_CLAMP}) ? K_XT_CLAMP : amt[7:0];
-wire signed [8:0]  pol = $signed({1'b0, luma2}) - 9'sd128;
-wire signed [24:0] sgn_w = $signed({1'b0, K_XT_SIGN}) * $signed({1'b0, dk}) * pol;
-wire signed [9:0]  sgn = sgn_w >>> 15;
-
-wire [16:0] xr = c2r * (9'd256 - dk);
-wire [16:0] xg = c2g * (9'd256 - dk);
-wire [16:0] xb = c2b * (9'd256 - dk);
+wire [8:0]  gryf  = (9'd255 - K_XT_GRAY) + gry_w[15:8];
+wire [17:0] amt0  = K_XTALK * field2;
+wire [26:0] amt1  = amt0 * gryf;
+wire [10:0] amt   = amt1[26:16];
+wire [7:0]  dk_w  = (amt > {3'b0, K_XT_CLAMP}) ? K_XT_CLAMP : amt[7:0];
+wire signed [8:0]  pol   = $signed({1'b0, luma2}) - 9'sd128;
+wire signed [24:0] sgn_w = $signed({1'b0, K_XT_SIGN}) * $signed({1'b0, dk_w}) * pol;
 
 always @(posedge clk) begin
-	f3_v <= f2_v; f3_x <= f2_x;
-	c3r <= sat8($signed({11'b0, xr[16:8]}) + sgn);
-	c3g <= sat8($signed({11'b0, xg[16:8]}) + sgn);
-	c3b <= sat8($signed({11'b0, xb[16:8]}) + sgn);
+	f2b_v <= f2_v; f2b_x <= f2_x;
+	c2br <= c2r; c2bg <= c2g; c2bb <= c2b;
+	dk2  <= dk_w;
+	sgn2 <= sgn_w >>> 15;
 end
 
-// f4: panelGamma + saturation + warm
+// f3: apply it
+reg [7:0]  c3r, c3g, c3b;
+reg [7:0]  f3_x;  reg f3_v;
+
+wire [16:0] xr = c2br * (9'd256 - dk2);
+wire [16:0] xg = c2bg * (9'd256 - dk2);
+wire [16:0] xb = c2bb * (9'd256 - dk2);
+
+always @(posedge clk) begin
+	f3_v <= f2b_v; f3_x <= f2b_x;
+	c3r <= sat8($signed({11'b0, xr[16:8]}) + sgn2);
+	c3g <= sat8($signed({11'b0, xg[16:8]}) + sgn2);
+	c3b <= sat8($signed({11'b0, xb[16:8]}) + sgn2);
+end
+
+// f3b: gamma LUT + its luma, split off for the same reason as f1b
+reg [7:0] g3r, g3g, g3b, g3l;
+reg [7:0] f3b_x; reg f3b_v;
+
+always @(posedge clk) begin
+	f3b_v <= f3_v; f3b_x <= f3_x;
+	g3r <= LUT_GAMMA[c3r];
+	g3g <= LUT_GAMMA[c3g];
+	g3b <= LUT_GAMMA[c3b];
+	g3l <= luma8(LUT_GAMMA[c3r], LUT_GAMMA[c3g], LUT_GAMMA[c3b]);
+end
+
+// f4: saturation + warm
 reg [7:0]  c4r, c4g, c4b;
 reg [7:0]  f4_x;  reg f4_v;
 
-wire [7:0] gr = LUT_GAMMA[c3r];
-wire [7:0] gg = LUT_GAMMA[c3g];
-wire [7:0] gb = LUT_GAMMA[c3b];
-wire [7:0] gl = luma8(gr, gg, gb);
+wire [7:0] gr = g3r, gg = g3g, gb = g3b, gl = g3l;
 
 wire signed [17:0] sat_r = ($signed({1'b0, gr}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT});
 wire signed [17:0] sat_g = ($signed({1'b0, gg}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT});
@@ -363,7 +399,7 @@ wire [15:0] w_g = gl * K_WARM_G;
 wire [15:0] w_b = gl * K_WARM_B;
 
 always @(posedge clk) begin
-	f4_v <= f3_v; f4_x <= f3_x;
+	f4_v <= f3b_v; f4_x <= f3b_x;
 	c4r <= sat8($signed({12'b0, gl}) + (sat_r >>> 8) + $signed({12'b0, w_r[15:8]}));
 	c4g <= sat8($signed({12'b0, gl}) + (sat_g >>> 8) + $signed({12'b0, w_g[15:8]}));
 	c4b <= sat8($signed({12'b0, gl}) + (sat_b >>> 8) - $signed({12'b0, w_b[15:8]}));

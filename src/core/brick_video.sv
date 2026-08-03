@@ -139,14 +139,28 @@ brick_ghost ghost (
 	.out_rgb ( gh_rgb  )
 );
 
-// the bank the ghost's output belongs to, delayed to match its 3 stages
-reg [6:0] bank_dly;
-always @(posedge clk_sys) bank_dly <= {bank_dly[5:0], cc_bank};
-wire lb_wbank = bank_dly[6];
+// Which line-buffer bank the ghost's output belongs to, delayed to match its
+// pipeline. Four banks, indexed by native row mod 4: the scanout needs the
+// current row AND the one above for the drop shadow, while the colour stage is
+// already writing the row below - three live rows, so two banks is not enough.
+reg [1:0] wrow_dly[0:6];
+integer wi;
+always @(posedge clk_sys) begin
+	wrow_dly[0] <= cc_row[1:0];
+	for (wi = 1; wi < 7; wi = wi + 1) wrow_dly[wi] <= wrow_dly[wi-1];
+end
+wire [1:0] lb_wbank = wrow_dly[6];
 
 // processed rows, double-buffered by native-row parity
-reg [23:0] lb[0:511];
-always @(posedge clk_sys) if (gh_v) lb[{lb_wbank, gh_x}] <= gh_rgb;
+// Two identical copies so the scanout can read the current row and the row
+// above in the same cycle. One write port and one read port each keeps them in
+// M10K; asking a single array for four reads turns it into 15k flip-flops.
+reg [23:0] lb_a[0:639];
+reg [23:0] lb_b[0:639];
+always @(posedge clk_sys) if (gh_v) begin
+	lb_a[{lb_wbank, gh_x}] <= gh_rgb;
+	lb_b[{lb_wbank, gh_x}] <= gh_rgb;
+end
 
 // Fetch pipeline: the line buffer has a registered address and the colour is
 // registered once more, so coordinates are taken 2 clocks ahead. The lookahead
@@ -160,16 +174,53 @@ wire       pre_game = (h_pre >= GX0) && (h_pre < GX0 + 640) &&
 wire [7:0] nx = (h_pre - GX0) >> 2;         // native dot 0..159
 wire [7:0] ny = (v - GY0) >> 2;             // native dot 0..143
 
-reg [23:0] lb_q;
+// The grid needs the dot above and to the left as shadow casters, so four
+// reads: this dot, the one left of it, the row above, and the diagonal. Both
+// native rows are live in the two line-buffer banks.
+// Only two of the four casters need a RAM read: scanning left to right, the
+// dot to the left is the previous cell's value, so it and the diagonal are
+// held in registers that update once per cell instead of costing a port.
+wire       ny_up_ok = (ny != 8'd0);
+wire [1:0] bank_c = ny[1:0];
+wire [1:0] bank_u = ny_up_ok ? (ny[1:0] - 2'd1) : ny[1:0];
+
+reg [23:0] q_c, q_u, q_l, q_ul;
+reg [1:0]  sx1, sy1;
 reg        p1_game;
+
+wire [1:0] sx_now = (h_pre - GX0) & 2'd3;
+
 always @(posedge clk_sys) begin
-	lb_q    <= lb[{ny[0], nx}];
+	q_c <= lb_a[{bank_c, nx}];
+	q_u <= lb_b[{bank_u, nx}];
+	if (sx_now == 2'd3) begin      // leaving a cell: it becomes the next left
+		q_l  <= q_c;
+		q_ul <= q_u;
+	end
+	sx1  <= sx_now;
+	sy1  <= (v - GY0) & 2'd3;
 	p1_game <= pre_game;
 end
 
+wire [23:0] grid_rgb;
+brick_grid grid (
+	.clk      ( clk_sys  ),
+	.cell_rgb ( q_c      ),
+	.up_rgb   ( q_u      ),
+	.left_rgb ( q_l      ),
+	.ul_rgb   ( q_ul     ),
+	.sx       ( sx1      ),
+	.sy       ( sy1      ),
+	.out_rgb  ( grid_rgb )
+);
+
+// brick_grid adds 4 cycles, so de follows it
+reg [3:0] game_dly;
+always @(posedge clk_sys) game_dly <= {game_dly[2:0], p1_game};
+
 always @(posedge clk_sys) begin
-	de  <= p1_game;
-	rgb <= p1_game ? lb_q : 24'h000000;
+	de  <= game_dly[3];
+	rgb <= game_dly[3] ? grid_rgb : 24'h000000;
 
 	// Single-cycle sync pulses; hs sits at h=8 so it never overlaps vs.
 	vs <= (v == 0) && (h == 0);
