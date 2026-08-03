@@ -500,6 +500,7 @@ logic pll_core_locked, pll_core_locked_s, reset_n_s, external_reset_s;
 logic [31:0] cont1_key_s, cont2_key_s, cont3_key_s, cont4_key_s;
 logic [31:0] boot_settings_s, run_settings_s;
 logic  [2:0] set_bright, set_warm;
+logic        speaker_en;
 
 synch_3               s01 (pll_core_locked, pll_core_locked_s,  clk_ram);
 synch_3               s02 (reset_n,         reset_n_s,          clk_sys);
@@ -532,6 +533,7 @@ always_comb begin
   // Pocket writes the persisted value, so the neutral index is not 0.
   set_bright     = run_settings_s[10:8];
   set_warm       = run_settings_s[13:11];
+  speaker_en     = run_settings_s[14];
 end
 
 mf_pllbase mp1
@@ -1067,8 +1069,24 @@ gb gb
 
 wire [15:0] audio_l, audio_r;
 
-assign audio_l = (fast_forward && ~ff_snd_en) ? 16'd0 : GB_AUDIO_L;
-assign audio_r = (fast_forward && ~ff_snd_en) ? 16'd0 : GB_AUDIO_R;
+wire [15:0] raw_l = (fast_forward && ~ff_snd_en) ? 16'd0 : GB_AUDIO_L;
+wire [15:0] raw_r = (fast_forward && ~ff_snd_en) ? 16'd0 : GB_AUDIO_R;
+
+// The DMG's speaker and case: brickboy's speaker model, run as biquads rather
+// than as the impulse response it convolves in Web Audio.
+wire [15:0] spk_l, spk_r;
+brick_audio brick_audio (
+  .clk    ( clk_sys           ),
+  .reset  ( external_reset_s  ),
+  .enable ( speaker_en        ),
+  .in_l   ( raw_l             ),
+  .in_r   ( raw_r             ),
+  .out_l  ( spk_l             ),
+  .out_r  ( spk_r             )
+);
+
+assign audio_l = speaker_en ? spk_l : raw_l;
+assign audio_r = speaker_en ? spk_r : raw_r;
 
 audio_mixer #(
   .DW     ( 16  ),

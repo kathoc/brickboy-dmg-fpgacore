@@ -165,6 +165,17 @@
             "value": "0x3800"
           }
         ]
+      },
+      {
+        "name": "Speaker Simulation",
+        "id": 1012,
+        "type": "check",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFFFFBFFF",
+        "defaultval": "0x00004000",
+        "value": "0x00004000"
       }
     ],
     "messages": []

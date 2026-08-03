@@ -105,8 +105,12 @@ if __name__ == "__main__":
         print(f"  {f:6.0f}  {r:+9.3f}  {s:+9.3f}  {s - r:+7.4f}")
     print(f"\n  worst quantisation error {np.abs(qz - ref).max():.4f} dB")
 
-    body = "\n".join(f"  24'sd{q(v)}," if i < 14 else f"  24'sd{q(v)}"
-                     for i, v in enumerate(
-                         [v for _, c in STAGES for v in c]))
+    def lit(v):
+        n = q(v)
+        return f"-24'sd{-n}" if n < 0 else f"24'sd{n}"
+
+    vals = [v for _, c in STAGES for v in c]
+    body = "\n".join(f"  {lit(v)}," if i < len(vals) - 1 else f"  {lit(v)}"
+                     for i, v in enumerate(vals))
     pathlib.Path("../src/core/brick_audio_coef.svh").write_text(body + "\n")
     print("\nwrote ../src/core/brick_audio_coef.svh")
