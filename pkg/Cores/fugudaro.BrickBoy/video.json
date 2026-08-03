@@ -10,14 +10,6 @@
         "rotation": 0,
         "mirror": 0
       }
-    ],
-    "display_modes": [
-      {
-        "id": "0x31"
-      },
-      {
-        "id": "0x32"
-      }
     ]
   }
 }
