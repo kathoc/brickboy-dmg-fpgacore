@@ -103,6 +103,9 @@ end
 
 wire start_frame = (v == GY0 - 2) && (h == 0);
 wire row_tick    = (v >= GY0) && (v < GY0 + 572) && (((v - GY0) & 10'd3) == 0) && (h == 0);
+// The active area is done: the colour stage is idle from here until the next
+// frame's start_frame, which is where its upward-crosstalk pre-pass runs.
+wire up_tick     = (v == GY0 + 576) && (h == 0);
 
 wire [7:0]  cc_x, cc_row;
 wire [23:0] cc_rgb;
@@ -112,6 +115,7 @@ brick_color color (
 	.clk         ( clk_sys      ),
 	.start_frame ( start_frame  ),
 	.row_tick    ( row_tick     ),
+	.up_tick     ( up_tick      ),
 	.row_disp    ( disp_row     ),
 	.fb_addr     ( col_fb_addr  ),
 	.fb_q        ( col_fb_q     ),

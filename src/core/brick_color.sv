@@ -15,8 +15,10 @@
 //   down  A[x] <- exp(-1/12) * (A[x] + d^2)   rows, top to bottom
 //   row   H    <- exp(-1/8)  * (H + d^2)      pixels, left to right
 //   edge  0.4 * |d(below) - d(above)|
-// The weak upward bleed (0.4x) and per-column gain noise (#49) are pending,
-// to be judged against the RetroArch port.
+//   col   per-column gain noise (#49), baked - see the f1b stage
+// The weak upward bleed (0.4x of the content BELOW each pixel) is still
+// pending: it needs the frame read bottom-to-top, which a top-to-bottom scan
+// cannot do without buffering the field.
 
 (* multstyle = "logic" *)
 module brick_color (
@@ -24,6 +26,7 @@ module brick_color (
 
 	input  wire        start_frame,   // prepare rows 0/1, process row 0
 	input  wire        row_tick,      // process the next row
+	input  wire        up_tick,       // active area done: run the upward pre-pass
 	input  wire [7:0]  row_disp,      // native row entering display
 
 	output reg  [14:0] fb_addr,
@@ -135,19 +138,27 @@ endfunction
 
 // a + (b - a) * k / 256. Never leaves [0,255], so no clamp is needed, but the
 // intermediate is computed wide and signed.
+//
+// The +128 rounds instead of truncating. Truncation is a one-sided error: every
+// stage loses on average half an LSB downward, and there are nine of them, so
+// the pipeline came out 1-3 levels dark at every shade. That reads as a green
+// cast rather than as dimness, because the palette's darkest shade is
+// (33, 92, 43) - strongly green - so darkening the image pulls it toward the
+// ink's hue. Rounding costs one adder per stage.
 function automatic [7:0] mix8(input [7:0] a, input [7:0] b, input [7:0] k);
 	reg signed [17:0] d;
 	begin
-		d = ($signed({1'b0, b}) - $signed({1'b0, a})) * $signed({1'b0, k});
+		d = ($signed({1'b0, b}) - $signed({1'b0, a})) * $signed({1'b0, k})
+		    + 18'sd128;
 		mix8 = a + d[15:8];
 	end
 endfunction
 
-// luma, exact: (77 R + 150 G + 29 B) >> 8
+// luma, exact: (77 R + 150 G + 29 B + 128) >> 8
 function automatic [7:0] luma8(input [7:0] r, input [7:0] g, input [7:0] b);
 	reg [16:0] t;
 	begin
-		t = 17'd77 * r + 17'd150 * g + 17'd29 * b;
+		t = 17'd77 * r + 17'd150 * g + 17'd29 * b + 17'd128;
 		luma8 = t[15:8];
 	end
 endfunction
@@ -164,7 +175,7 @@ reg [15:0] rowH;
 
 // --------------------------------------------------------------------- FSM ---
 
-localparam S_IDLE = 3'd0, S_PF0 = 3'd1, S_PF1 = 3'd2, S_PROC = 3'd3;
+localparam S_IDLE = 3'd0, S_PF0 = 3'd1, S_PF1 = 3'd2, S_PROC = 3'd3, S_UP = 3'd4;
 
 reg [2:0]  state = S_IDLE;
 reg [8:0]  x;                    // 9 bits: runs past 159 during pipeline flush
@@ -178,6 +189,47 @@ function automatic [14:0] fbaddr(input [7:0] r, input [7:0] xx);
 endfunction
 
 wire [7:0] row_below = (cur_row == 8'd143) ? 8'd143 : cur_row + 8'd1;
+
+// ------------------------------------------------- upward crosstalk field ---
+// FRAG_COLUMN_REDUCE is BIDIRECTIONAL: content BELOW a pixel bleeds upward onto
+// it at 0.4x the downward weight. Its comment is explicit that this is what
+// makes the effect read as crosstalk SURROUNDING dark content rather than as a
+// second copy of the pixel drop-shadow - and without it a wide dark block just
+// gets a flat skirt underneath.
+//
+// A top-to-bottom scan cannot see the rows below, so the field is computed once
+// per frame by a pre-pass that walks rows 143 -> 0 during blanking, using the
+// same one-pole recurrence as the downward accumulator:
+//
+//     U(r) = exp(-1/12) * (d(r+1)^2 + U(r+1)),   U(143) = 0
+//
+// Storing it for every row would cost 160 x 144 bytes. The decay constant is 12
+// dots, so the field is smooth vertically and one sample every 8 rows carries
+// it: 18 lattice rows, packed as pairs {U at 8(cy+1), U at 8cy} so the linear
+// interpolation the forward pass does needs a single read. 2880 x 16 bits.
+//
+// The pre-pass reads the frame buffer through the same port the row prefetch
+// uses; it runs in the gap after the last row and before the next frame's
+// start_frame, which is about 47k clocks against the 23k it needs. The capture
+// is writing the NEXT frame meanwhile, but only into rows the walk has already
+// passed, so what it reads is one consistent frame.
+localparam int UP_LROWS = 18;
+
+reg [15:0] upbuf[0:UP_LROWS*160-1];
+reg [13:0] colU[0:159];
+reg [7:0]  up_hi[0:159];
+reg [7:0]  up_row;
+reg [8:0]  up_x, up_xd;      // up_xd trails up_x, matching fb_q's one-cycle lag
+reg        up_lat;
+reg        up_valid = 1'b0;      // no field until the first pre-pass finishes
+
+// cy * 160 = cy*128 + cy*32
+function automatic [11:0] upaddr(input [4:0] cy, input [7:0] xx);
+	upaddr = {cy, 7'b0} + {cy, 5'b0} + xx;
+endfunction
+
+wire [7:0]  up_sample = colU[up_xd[7:0]][11:4];      // U >> 4, in 8 bits
+wire [22:0] colU_new  = K_BETA_V * (colU[up_xd[7:0]] + {6'd0, dsq(fb_q)});
 
 // Transition assignments live at the END of each branch so nothing can
 // override them - the first revision incremented x after setting it to zero,
@@ -201,6 +253,45 @@ always @(posedge clk) begin
 			fb_addr <= fbaddr((row_disp >= 8'd142) ? 8'd143 : row_disp + 8'd2, 8'd0);
 			x <= 0; x_d1 <= 0; pf_lat <= 0;
 			state <= S_PF1;
+		end else if (up_tick) begin
+			up_row <= 8'd143;
+			up_x   <= 0; up_xd <= 0;
+			up_lat <= 0;
+			fb_addr <= fbaddr(8'd143, 8'd0);
+			for (int i = 0; i < 160; i++) begin
+				colU[i]  <= 14'd0;
+				up_hi[i] <= 8'd0;      // U at row 144, off the bottom
+			end
+			state <= S_UP;
+		end
+	end
+
+	// One column per clock, rows 143 -> 0. fb_q lags the address by a cycle, so
+	// up_lat skips the first result the way the row prefetch does.
+	S_UP: begin
+		up_x  <= up_x + 1'd1;
+		up_xd <= up_x;
+		fb_addr <= fbaddr(up_row, up_x[7:0] + 8'd1);
+		if (!up_lat) up_lat <= 1'b1;
+		else begin
+			// Record U before the update: colU currently holds U(up_row), the
+			// sum over the rows BELOW this one.
+			if (up_row[2:0] == 3'd0) begin
+				upbuf[upaddr(up_row[7:3], up_xd[7:0])]
+				    <= {up_hi[up_xd[7:0]], up_sample};
+				up_hi[up_xd[7:0]] <= up_sample;
+			end
+			colU[up_xd[7:0]] <= colU_new[21:8];   // becomes U(up_row - 1)
+			if (up_xd == 9'd159) begin
+				up_x <= 0; up_xd <= 0; up_lat <= 0;
+				if (up_row == 8'd0) begin
+					up_valid <= 1'b1;
+					state <= S_IDLE;
+				end else begin
+					up_row <= up_row - 8'd1;
+					fb_addr <= fbaddr(up_row - 8'd1, 8'd0);
+				end
+			end
 		end
 	end
 
@@ -258,6 +349,16 @@ reg [15:0] rowH_use;
 
 wire [24:0] rowH_new = K_BETA_H * (rowH + {8'd0, dsq(row_cur[px])});
 
+// The lattice word for the row being processed, and the weight inside it. Read
+// with the f0 taps so it lands with them.
+reg [15:0] up_q;
+reg [2:0]  up_f0;
+
+always @(posedge clk) begin
+	up_q  <= upbuf[upaddr(cur_row[7:3], px)];
+	up_f0 <= cur_row[2:0];
+end
+
 always @(posedge clk) begin
 	f0_v <= px_v;
 	f0_x <= px;
@@ -289,9 +390,18 @@ wire [9:0]  avg_b = ({2'b0, pl[7:0]}   + {2'b0, pr[7:0]}   + {2'b0, pu[7:0]}   +
 wire [7:0]  edge_d = (dlin(s_d) > dlin(s_u)) ? dlin(s_d) - dlin(s_u)
                                              : dlin(s_u) - dlin(s_d);
 wire [22:0] colA_new = K_BETA_V * (colA_q + {6'd0, dsq(s_c)});
+// Interpolate the upward field between the two lattice rows, then weight it.
+// The stored value is U >> 4 and the shader's weight is 0.4 * wnV = 0.4 * 20,
+// so the contribution is (u << 4) * 8 = u << 7.
+wire [7:0] up_lo = up_q[7:0], up_hi_q = up_q[15:8];
+wire signed [12:0] up_d = ($signed({1'b0, up_hi_q}) - $signed({1'b0, up_lo}))
+                          * $signed({1'b0, up_f0});
+wire [7:0] up_v = up_valid ? (up_lo + up_d[10:3]) : 8'd0;
+
 wire [21:0] fld = ({8'd0, colA_q} * K_WN_V)
                 + (({6'd0, rowH_use} * K_WN_H) >> 2)
-                + ({14'd0, edge_d} * K_XT_EDGE);
+                + ({14'd0, edge_d} * K_XT_EDGE)
+                + {7'd0, up_v, 7'd0};
 
 always @(posedge clk) begin
 	f1_v <= f0_v; f1_x <= f0_x;
@@ -302,16 +412,32 @@ always @(posedge clk) begin
 	if (f0_v) colA[f0_x] <= colA_new[21:8];
 end
 
-// f1b: luma. Feeding a 3-term dot product straight into a LUT and then into
-// three interpolations does not close in one hop.
+// f1b: luma, and the per-column crosstalk gain (#49).
+//
+// Feeding a 3-term dot product straight into a LUT and then into three
+// interpolations does not close in one hop, so the luma gets its own stage; the
+// column gain rides along in it.
+//
+// The gain is the last piece of FRAG_COLUMN_REDUCE:
+//     field *= 1.0 + uXtalkNoise * (hash21(col, seed) - 0.5)
+// a +-9% per-column variation, baked by tools/bake_grain.py. Without it every
+// column of a wide dark block is shaded identically and the crosstalk below it
+// reads as a flat fill instead of as panel behaviour.
 reg [7:0] c1br, c1bg, c1bb, luma1b;
 reg [9:0] field1b;
 reg [7:0] f1b_x; reg f1b_v;
 
+`include "brick_xtalk_col.svh"
+
+wire signed [8:0]  xtn    = {XT_COL[f1_x][7], XT_COL[f1_x]};
+wire signed [19:0] xt_adj = $signed({10'b0, field1}) * xtn + 20'sd128;
+wire signed [11:0] xt_sum = $signed({2'b0, field1}) + xt_adj[19:8];
+
 always @(posedge clk) begin
 	f1b_v <= f1_v; f1b_x <= f1_x;
 	c1br <= c1r; c1bg <= c1g; c1bb <= c1b;
-	field1b <= field1;
+	field1b <= (xt_sum < 0) ? 10'd0 :
+	           (xt_sum > 12'sd1023) ? 10'd1023 : xt_sum[9:0];
 	luma1b <= luma8(c1r, c1g, c1b);
 end
 
@@ -320,7 +446,7 @@ reg [7:0]  c2r, c2g, c2b, luma2;
 reg [9:0]  field2;
 reg [7:0]  f2_x;  reg f2_v;
 
-wire [15:0] offm_w = K_OFFTINT * LUT_OFFW[luma1b];
+wire [15:0] offm_w = K_OFFTINT * LUT_OFFW[luma1b] + 16'd128;
 wire [7:0]  offm   = offm_w[15:8];
 
 always @(posedge clk) begin
@@ -391,12 +517,13 @@ reg [7:0]  f4_x;  reg f4_v;
 
 wire [7:0] gr = g3r, gg = g3g, gb = g3b, gl = g3l;
 
-wire signed [17:0] sat_r = ($signed({1'b0, gr}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT});
-wire signed [17:0] sat_g = ($signed({1'b0, gg}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT});
-wire signed [17:0] sat_b = ($signed({1'b0, gb}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT});
-wire [15:0] w_r = gl * K_WARM_R;
-wire [15:0] w_g = gl * K_WARM_G;
-wire [15:0] w_b = gl * K_WARM_B;
+// +128 on every product: see mix8 for why these round rather than truncate.
+wire signed [17:0] sat_r = ($signed({1'b0, gr}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT}) + 18'sd128;
+wire signed [17:0] sat_g = ($signed({1'b0, gg}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT}) + 18'sd128;
+wire signed [17:0] sat_b = ($signed({1'b0, gb}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT}) + 18'sd128;
+wire [15:0] w_r = gl * K_WARM_R + 16'd128;
+wire [15:0] w_g = gl * K_WARM_G + 16'd128;
+wire [15:0] w_b = gl * K_WARM_B + 16'd128;
 
 always @(posedge clk) begin
 	f4_v <= f3b_v; f4_x <= f3b_x;
@@ -412,9 +539,9 @@ function automatic [7:0] tone(input [7:0] v);
 	reg signed [17:0] t;
 	reg signed [17:0] u;
 	begin
-		t = (($signed({1'b0, v}) - 18'sd128) * $signed({1'b0, K_CONTRAST}));
+		t = (($signed({1'b0, v}) - 18'sd128) * $signed({1'b0, K_CONTRAST})) + 18'sd128;
 		t = (t >>> 8) + 18'sd128;
-		u = t * $signed({1'b0, K_BRIGHT});
+		u = t * $signed({1'b0, K_BRIGHT}) + 18'sd128;
 		tone = sat8(u >>> 8);
 	end
 endfunction

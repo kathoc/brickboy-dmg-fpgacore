@@ -221,3 +221,28 @@ if __name__ == "__main__":
     emit("GRAIN_COARSE", pair, out / "brick_grain_coarse.svh", width_bits=16)
     print(f"wrote {out}/brick_grain_coarse.svh  "
           f"({pair.size} words x 16 bit, {pair.size*16/1024:.1f} kbit)")
+
+
+def bake_xtalk_columns(seed=SEED, amount=0.18):
+    """FRAG_COLUMN_REDUCE's per-column crosstalk gain (#49), as a table.
+
+        float n = hash21(vec2(float(col), uSeed * 1.3 + 3.0));
+        field *= 1.0 + uXtalkNoise * (n - 0.5);
+
+    hash21 is fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453). The argument
+    to sin reaches ~24000, where float32 and float64 argument reduction diverge,
+    so this cannot be reproduced bit-exactly from GLSL - it is evaluated here in
+    float32 to stay as close as the format allows. The specific pattern is one
+    console's fingerprint and is arbitrary; what has to match is the
+    distribution and the amplitude, and those do.
+
+    Returned as a signed Q0.8 offset from unity, so the RTL computes
+    field + ((field * d) >> 8).
+    """
+    f32 = np.float32
+    col = np.arange(160, dtype=np.float32)
+    d = col * f32(127.1) + f32(seed * 1.3 + 3.0) * f32(311.7)
+    n = np.modf(np.sin(d.astype(np.float32)).astype(np.float32)
+                * f32(43758.5453))[0].astype(np.float32)
+    n = np.where(n < 0, n + 1.0, n)
+    return np.round((amount * (n - 0.5)) * 256).astype(np.int64)
