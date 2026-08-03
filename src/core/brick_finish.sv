@@ -30,9 +30,58 @@ module brick_finish (
 	input  wire        clk,
 	input  wire [9:0]  gx,          // output pixel within the game area
 	input  wire [9:0]  gy,
+	input  wire [2:0]  set_bright,  // panel trim, 3 = neutral
+	input  wire [2:0]  set_warm,    // panel trim, 3 = neutral
 	input  wire [23:0] in_rgb,
 	output reg  [23:0] out_rgb
 );
+
+// Panel trim. NOT part of the port: brickboy's numbers are reproduced exactly
+// and these ride on top, because the Pocket's LTPS LCD and the phone OLED
+// brickboy is authored against have different primaries and Analogue publishes
+// no colorimetry for the panel. Guessing a correction into the pipeline would
+// corrupt the port; a knob leaves the reference intact and lets the person
+// looking at the screen decide. Neutral (index 3) is a no-op.
+function automatic [16:0] k_bright(input [2:0] i);
+	case (i)
+		3'd0: k_bright = 17'd59768;   // 0.912
+		3'd1: k_bright = 17'd61604;   // 0.940
+		3'd2: k_bright = 17'd63570;   // 0.970
+		3'd3: k_bright = 17'd65536;   // 1.000
+		3'd4: k_bright = 17'd67502;   // 1.030
+		3'd5: k_bright = 17'd69468;   // 1.060
+		3'd6: k_bright = 17'd71434;   // 1.090
+		3'd7: k_bright = 17'd73400;   // 1.120
+	endcase
+endfunction
+
+// Warmth trades red against blue at constant green, so it moves the hue without
+// moving the luminance much.
+function automatic [16:0] k_warm_r(input [2:0] i);
+	case (i)
+		3'd0: k_warm_r = 17'd59768;
+		3'd1: k_warm_r = 17'd61604;
+		3'd2: k_warm_r = 17'd63570;
+		3'd3: k_warm_r = 17'd65536;
+		3'd4: k_warm_r = 17'd67502;
+		3'd5: k_warm_r = 17'd69468;
+		3'd6: k_warm_r = 17'd71434;
+		3'd7: k_warm_r = 17'd73400;
+	endcase
+endfunction
+
+function automatic [16:0] k_warm_b(input [2:0] i);
+	case (i)
+		3'd0: k_warm_b = 17'd71434;
+		3'd1: k_warm_b = 17'd69468;
+		3'd2: k_warm_b = 17'd67502;
+		3'd3: k_warm_b = 17'd65536;
+		3'd4: k_warm_b = 17'd63570;
+		3'd5: k_warm_b = 17'd61604;
+		3'd6: k_warm_b = 17'd59768;
+		3'd7: k_warm_b = 17'd57802;
+	endcase
+endfunction
 
 localparam [15:0] CX = 16'd19661;   // 0.30 in Q0.16
 localparam [15:0] CY = 16'd47186;   // 0.72
@@ -106,8 +155,8 @@ always @(posedge clk) begin
 end
 
 // ---- s3: apply ---------------------------------------------------------------
-// One factor for all three channels, then the matte grain added equally.
-reg signed [17:0] fac3;
+// One factor per channel (the trim splits them), then the matte grain added
+// equally.
 reg [23:0] c3;
 reg signed [9:0] fg3;
 
@@ -124,10 +173,23 @@ endfunction
 
 wire [31:0] fh = mix32({6'b0, y2, 6'b0, x2} ^ 32'h5bd1e995);
 
+// The trim is constant, so it is folded into the per-pixel factor once. Three
+// multiplies rather than three more in the output stage, and the widths stay
+// small because both terms are near unity.
+wire signed [17:0] fac_now = 18'sd65536 + grad2 - vign2;
+wire [34:0] tb = $unsigned(fac_now) * k_bright(set_bright);
+wire [16:0] fb17 = tb[32:16];
+wire [33:0] tr = fb17 * k_warm_r(set_warm);
+wire [33:0] tbb = fb17 * k_warm_b(set_warm);
+
+reg signed [17:0] fac3g, fac3r, fac3b;
+
 always @(posedge clk) begin
-	fac3 <= 18'sd65536 + grad2 - vign2;
-	c3   <= c2;
-	fg3  <= $signed({2'b0, fh[31:24]}) - 10'sd128;
+	fac3g <= $signed({1'b0, fb17});
+	fac3r <= $signed({1'b0, tr[32:16]});
+	fac3b <= $signed({1'b0, tbb[32:16]});
+	c3    <= c2;
+	fg3   <= $signed({2'b0, fh[31:24]}) - 10'sd128;
 end
 
 function automatic [7:0] sat8(input signed [19:0] v);
@@ -146,9 +208,9 @@ function automatic [7:0] apply(input [7:0] v, input signed [17:0] f,
 endfunction
 
 always @(posedge clk) begin
-	out_rgb <= { apply(c3[23:16], fac3, fg3),
-	             apply(c3[15:8],  fac3, fg3),
-	             apply(c3[7:0],   fac3, fg3) };
+	out_rgb <= { apply(c3[23:16], fac3r, fg3),
+	             apply(c3[15:8],  fac3g, fg3),
+	             apply(c3[7:0],   fac3b, fg3) };
 end
 
 endmodule

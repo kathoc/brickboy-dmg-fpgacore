@@ -38,6 +38,9 @@ module brick_video (
 	input  wire        lcd_on,
 	input  wire        lcd_vsync,
 
+	input  wire [2:0]  set_bright,   // panel trim from interact.json
+	input  wire [2:0]  set_warm,
+
 	output reg         hs,
 	output reg         vs,
 	output reg         de,
@@ -287,6 +290,8 @@ brick_finish finish (
 	.clk     ( clk_sys  ),
 	.gx      ( h_pre - GX0 ),
 	.gy      ( v - GY0     ),
+	.set_bright ( set_bright ),
+	.set_warm   ( set_warm   ),
 	.in_rgb  ( grid_rgb ),
 	.out_rgb ( fin_rgb  )
 );

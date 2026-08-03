@@ -499,6 +499,7 @@ logic clk_sys, clk_ram, clk_ram_90, clk_vid, clk_vid_90;
 logic pll_core_locked, pll_core_locked_s, reset_n_s, external_reset_s;
 logic [31:0] cont1_key_s, cont2_key_s, cont3_key_s, cont4_key_s;
 logic [31:0] boot_settings_s, run_settings_s;
+logic  [2:0] set_bright, set_warm;
 
 synch_3               s01 (pll_core_locked, pll_core_locked_s,  clk_ram);
 synch_3               s02 (reset_n,         reset_n_s,          clk_sys);
@@ -527,6 +528,10 @@ always_comb begin
   sgb_border_en  = run_settings_s[4];
   tint           = run_settings_s[6:5];
   audio_no_pops  = run_settings_s[7];
+  // Panel trim (see brick_finish). 3 = neutral; run_settings is zero until the
+  // Pocket writes the persisted value, so the neutral index is not 0.
+  set_bright     = run_settings_s[10:8];
+  set_warm       = run_settings_s[13:11];
 end
 
 mf_pllbase mp1
@@ -1097,6 +1102,8 @@ brick_video brick_video (
   .lcd_data    ( sgb_lcd_data[1:0] ),
   .lcd_mode    ( sgb_lcd_mode   ),
   .lcd_on      ( sgb_lcd_on     ),
+  .set_bright  ( set_bright ),
+  .set_warm    ( set_warm   ),
   .lcd_vsync   ( sgb_lcd_vsync  ),
 
   .hs          ( bv_hs          ),
