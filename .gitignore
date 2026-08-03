@@ -6,3 +6,5 @@ build/*.sof
 build/sdcard/
 __pycache__/
 *.qws
+tools/db/
+tools/ap_core.*

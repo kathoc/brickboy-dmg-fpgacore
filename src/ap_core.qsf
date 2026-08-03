@@ -806,6 +806,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE gb/sdram.sv
 set_global_assignment -name VERILOG_FILE gb/gb.v
 set_global_assignment -name VERILOG_FILE gb/cart.v
 set_global_assignment -name SYSTEMVERILOG_FILE core/core_top.sv
+set_global_assignment -name SEARCH_PATH core
 set_global_assignment -name SYSTEMVERILOG_FILE core/brick_video.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/brick_color.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/brick_ghost.sv

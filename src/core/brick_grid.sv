@@ -31,12 +31,11 @@ module brick_grid (
 	input  wire        clk,
 
 	input  wire [23:0] cell_rgb,   // colour of the dot this sub-pixel belongs to
-	input  wire [23:0] up_rgb,     // same column, the native row above
-	input  wire [23:0] left_rgb,   // same row, the native dot to the left
-	input  wire [23:0] ul_rgb,     // up-left diagonal
+	input  wire [7:0]  near_d,     // caster darkness ~1.35 dots toward the light
+	input  wire [7:0]  far_d,      // ...and ~3.24 dots, the broad penumbra
 	input  wire [1:0]  sx,         // sub-pixel position inside the cell
 	input  wire [1:0]  sy,
-	input  wire [7:0]  grain,      // reflector sheet grain, 128 = flat
+	input  wire signed [8:0] grain, // reflector sheet grain, +-127 = +-1
 
 	output reg  [23:0] out_rgb
 );
@@ -52,7 +51,9 @@ localparam [7:0] K_STR    = 8'd159;   // grid strength 0.62
 localparam [7:0] K_DROP   = 8'd87;    // shadowOpacity 0.34
 // shadowColor [0.397, 0.391, 0.222] x255
 localparam [7:0] DROP_R = 8'd101, DROP_G = 8'd100, DROP_B = 8'd57;
-localparam [7:0] K_PAPER = 8'd9;      // reflector grain, ~1% luminance sigma
+// finish.paper 0.01 is the TOTAL luminance sigma the profile asks for, against a
+// stored grain sigma of 1/3 - so the multiplier is 0.01 / (1/3) = 0.03.
+localparam [7:0] K_PAPER = 8'd8;      // 8/256 = 0.031
 
 localparam bit [7:0] LUT_SS_NEAR[0:255] = '{
   8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
@@ -92,14 +93,23 @@ localparam bit [7:0] LUT_SS_FAR[0:255] = '{
   8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255, 8'd255
 };
 
-// Integral of the shader's smoothstep over each quarter of the cell at
-// pixel_size 0.80. Symmetric, so one axis table serves both.
+// The shader's body mask at 4x, sampled the way the shader samples it.
+//
+// This used to hold the INTEGRAL of the smoothstep over each quarter cell
+// (153), which is not what the shader computes. The shader widens the
+// smoothstep edge to one device pixel - e = max(margin, fwidth(cc)), and at 4x
+// fwidth is 0.25 against a margin of 0.20 - then evaluates it POINTWISE at the
+// fragment centre. With e = 0.25 and centres at 0.125/0.375/0.625/0.875 that is
+// smoothstep(0, 0.25, 0.125) = 0.5 on the leading and trailing sub-pixel.
+// Averaging instead of point-sampling shrank the gap and cost about a fifth of
+// the grid modulation. Verified against brickboy's own renderfarm harness at 4x
+// (tools/bb_render.mjs). Symmetric, so one axis table serves both.
 function automatic [7:0] axis_cov(input [1:0] s);
 	case (s)
-		2'd0: axis_cov = 8'd153;
+		2'd0: axis_cov = 8'd128;
 		2'd1: axis_cov = 8'd255;
 		2'd2: axis_cov = 8'd255;
-		2'd3: axis_cov = 8'd153;
+		2'd3: axis_cov = 8'd128;
 	endcase
 endfunction
 
@@ -132,24 +142,23 @@ function automatic [7:0] gcon(input [7:0] v);
 	end
 endfunction
 
-// ---- s0: coverage and the shadow caster --------------------------------------
+// ---- s0: coverage ------------------------------------------------------------
+// The casters arrive already sampled at the two offsets brick_video walks back
+// along the light direction; see there. They used to be the IMMEDIATELY
+// adjacent cells for both layers, which put the shadow one dot from its caster
+// instead of 1.35 and 3.24, and made it fade about three times too fast.
 reg [7:0]  body;
-reg [23:0] base1, cast1;
+reg [23:0] base1;
+reg [7:0]  near1, far1;
 reg [1:0]  sx1, sy1;
 
 wire [15:0] bodyw = axis_cov(sx) * axis_cov(sy);
 
-// Light upper-left: the shadow falling on this sub-pixel comes from the cell
-// up and/or left of it. Only the leading sub-pixels of a cell can be shadowed,
-// which is what gives the offset its direction.
-wire top  = (sy == 2'd0);
-wire lft  = (sx == 2'd0);
-wire [23:0] caster = (top && lft) ? ul_rgb : top ? up_rgb : lft ? left_rgb : cell_rgb;
-
 always @(posedge clk) begin
 	body  <= bodyw[15:8];
 	base1 <= cell_rgb;
-	cast1 <= caster;
+	near1 <= near_d;
+	far1  <= far_d;
 	sx1 <= sx; sy1 <= sy;
 end
 
@@ -161,7 +170,7 @@ end
 reg [23:0] e_gap, e_dot;
 reg [7:0]  body1;
 reg [23:0] base2;
-reg [7:0]  cast_d1;
+reg [7:0]  near2, far2;
 
 wire [7:0] lit_r = mix8(BG_R, base1[23:16], 8'd255 - K_BASEA);
 wire [7:0] lit_g = mix8(BG_G, base1[15:8],  8'd255 - K_BASEA);
@@ -170,7 +179,8 @@ wire [7:0] lit_b = mix8(BG_B, base1[7:0],   8'd255 - K_BASEA);
 always @(posedge clk) begin
 	body1 <= body;
 	base2 <= base1;
-	cast_d1 <= 8'd255 - luma8(cast1[23:16], cast1[15:8], cast1[7:0]);
+	near2 <= near1;
+	far2  <= far1;
 	e_gap <= { mix8(base1[23:16], gcon(GAP_R), K_STR),
 	           mix8(base1[15:8],  gcon(GAP_G), K_STR),
 	           mix8(base1[7:0],   gcon(GAP_B), K_STR) };
@@ -185,11 +195,11 @@ reg [7:0]  amt2;
 
 // The shader thresholds the caster's darkness twice - a sharp near umbra and a
 // broad, weaker penumbra - and then suppresses the whole thing where the pixel
-// is already dark itself. A plain linear term (what this was) puts far too
-// little shadow on dark content, which leaves the ink reading greener than it
-// should, because the shadow colour is nearly neutral.
-wire [7:0]  ss_near = LUT_SS_NEAR[cast_d1];
-wire [7:0]  ss_far  = LUT_SS_FAR[cast_d1];
+// is already dark itself. Each threshold gets its OWN caster, sampled at its own
+// distance; feeding both from the same adjacent cell (what this did) collapses
+// the two layers into one and takes the depth cue with it.
+wire [7:0]  ss_near = LUT_SS_NEAR[near2];
+wire [7:0]  ss_far  = LUT_SS_FAR[far2];
 wire [9:0]  ss_sum  = {2'b0, ss_near} + (({2'b0, ss_far} * 10'd115) >> 8);   // + 0.45x
 wire [7:0]  ss_cl   = (ss_sum > 10'd255) ? 8'd255 : ss_sum[7:0];
 wire [15:0] amt_w   = ss_cl * K_DROP;
@@ -217,10 +227,8 @@ end
 // ---- s3: lay the shadow, then the reflector grain ---------------------------
 // The grain is a reflectance variation of the sheet seen through the LC, so it
 // scales whatever light comes back: plain on the light shades, all but
-// invisible in the ink. brickboy bakes a texture because a GPU pays ~28 hashes
-// per fragment; one integer hash per output pixel is nearly free here, and at
-// 4x upscale one output pixel is about the measured feature size (0.3-0.5 dot).
-// Hue wobble is a third of the luminance wobble, so this is nearly achromatic.
+// invisible in the ink. brick_grain supplies the fine and coarse bands already
+// summed; see there for how they are split.
 reg [23:0] shad4;
 reg signed [9:0] gr4;
 
@@ -230,7 +238,7 @@ wire [23:0] shad_w = { mix8(grid3[23:16], DROP_R, amt3),
 
 always @(posedge clk) begin
 	shad4 <= shad_w;
-	gr4   <= $signed({2'b0, grain}) - 10'sd128;
+	gr4   <= {grain[8], grain};
 end
 
 wire [15:0] gm_r = shad4[23:16] * K_PAPER;

@@ -75,7 +75,7 @@ end
 // ----------------------------------------------------------------- raster ---
 
 localparam H_TOT = 896, V_TOT = 627;
-localparam GX0 = 208, GY0 = 35;             // game area top-left
+localparam [9:0] GX0 = 208, GY0 = 35;       // game area top-left
 
 // ------------------------------------------------------------ colour stage ---
 // Row triggers: row 0 is prepared two raster lines before the game area, and
@@ -140,27 +140,45 @@ brick_ghost ghost (
 );
 
 // Which line-buffer bank the ghost's output belongs to, delayed to match its
-// pipeline. Four banks, indexed by native row mod 4: the scanout needs the
-// current row AND the one above for the drop shadow, while the colour stage is
-// already writing the row below - three live rows, so two banks is not enough.
-reg [1:0] wrow_dly[0:6];
+// pipeline. Eight banks, indexed by native row mod 8: the drop shadow reaches
+// three rows back (see below), and the colour stage is already a row ahead.
+reg [2:0] wrow_dly[0:6];
 integer wi;
 always @(posedge clk_sys) begin
-	wrow_dly[0] <= cc_row[1:0];
+	wrow_dly[0] <= cc_row[2:0];
 	for (wi = 1; wi < 7; wi = wi + 1) wrow_dly[wi] <= wrow_dly[wi-1];
 end
-wire [1:0] lb_wbank = wrow_dly[6];
+wire [2:0] lb_wbank = wrow_dly[6];
 
-// processed rows, double-buffered by native-row parity
-// Two identical copies so the scanout can read the current row and the row
-// above in the same cycle. One write port and one read port each keeps them in
-// M10K; asking a single array for four reads turns it into 15k flip-flops.
-reg [23:0] lb_a[0:639];
-reg [23:0] lb_b[0:639];
-always @(posedge clk_sys) if (gh_v) begin
-	lb_a[{lb_wbank, gh_x}] <= gh_rgb;
-	lb_b[{lb_wbank, gh_x}] <= gh_rgb;
-end
+// The scanout only ever reads the CURRENT row in colour - the shadow casters
+// come out of the narrow darkness buffer below - so one copy is enough. The
+// second copy this used to keep, purely so the row above could be read for the
+// shadow, is gone.
+reg [23:0] lb_a[0:2047];
+always @(posedge clk_sys) if (gh_v) lb_a[{lb_wbank, gh_x}] <= gh_rgb;
+
+// Shadow casters. The shader walks back along the light direction (upper-left)
+// by shadowOffset 1.35 dots for the umbra and 2.4x that - 3.24 dots - for the
+// penumbra, and reads the PRE-GRID image there. Along a 45-degree diagonal
+// those land 0.95 and 2.29 dots back on each axis, so the casters are the cells
+// at (-1,-1) and, for the far layer, the mean of (-2,-2) and (-3,-3).
+//
+// Only the caster's DARKNESS is needed, so this is a native-resolution 8-bit
+// buffer rather than another 24-bit line store: 8 rows of 160, one M10K. The
+// three reads are time-multiplexed across the four clocks of a cell, which is
+// why one port suffices, and they are issued a cell early so the values stand
+// still for the whole of the cell that uses them.
+function automatic [7:0] luma8(input [23:0] c);
+	reg [16:0] t;
+	begin
+		t = 17'd77*c[23:16] + 17'd150*c[15:8] + 17'd29*c[7:0];
+		luma8 = t[15:8];
+	end
+endfunction
+
+reg [7:0] dkbuf[0:2047];
+always @(posedge clk_sys) if (gh_v)
+	dkbuf[{lb_wbank, gh_x}] <= 8'd255 - luma8(gh_rgb);
 
 // Fetch pipeline: the line buffer has a registered address and the colour is
 // registered once more, so coordinates are taken 2 clocks ahead. The lookahead
@@ -174,52 +192,77 @@ wire       pre_game = (h_pre >= GX0) && (h_pre < GX0 + 640) &&
 wire [7:0] nx = (h_pre - GX0) >> 2;         // native dot 0..159
 wire [7:0] ny = (v - GY0) >> 2;             // native dot 0..143
 
-// The grid needs the dot above and to the left as shadow casters, so four
-// reads: this dot, the one left of it, the row above, and the diagonal. Both
-// native rows are live in the two line-buffer banks.
-// Only two of the four casters need a RAM read: scanning left to right, the
-// dot to the left is the previous cell's value, so it and the diagonal are
-// held in registers that update once per cell instead of costing a port.
-wire       ny_up_ok = (ny != 8'd0);
-wire [1:0] bank_c = ny[1:0];
-wire [1:0] bank_u = ny_up_ok ? (ny[1:0] - 2'd1) : ny[1:0];
-
-reg [23:0] q_c, q_u, q_l, q_ul;
+reg [23:0] q_c;
 reg [1:0]  sx1, sy1;
 reg        p1_game;
 
 wire [1:0] sx_now = (h_pre - GX0) & 2'd3;
 
+// Caster reads for the NEXT cell, one per sub-pixel phase. Outside the dot
+// field there is no element to cast, so those taps read as fully light - the
+// same thing the shader gets, where the colour pass writes the bare panel
+// colour beyond the active area.
+wire [7:0] nxn = nx + 8'd1;
+reg  [10:0] dk_addr;
+reg         dk_ok;
+always @(*) begin
+	case (sx_now)
+		2'd0: begin dk_addr = {ny[2:0] - 3'd1, nxn - 8'd1}; dk_ok = (ny >= 8'd1) && (nxn >= 8'd1); end
+		2'd1: begin dk_addr = {ny[2:0] - 3'd2, nxn - 8'd2}; dk_ok = (ny >= 8'd2) && (nxn >= 8'd2); end
+		default: begin dk_addr = {ny[2:0] - 3'd3, nxn - 8'd3}; dk_ok = (ny >= 8'd3) && (nxn >= 8'd3); end
+	endcase
+end
+
+reg [7:0] dk_q;
+reg       dk_ok1;
+reg [1:0] sx_r;
 always @(posedge clk_sys) begin
-	q_c <= lb_a[{bank_c, nx}];
-	q_u <= lb_b[{bank_u, nx}];
-	if (sx_now == 2'd3) begin      // leaving a cell: it becomes the next left
-		q_l  <= q_c;
-		q_ul <= q_u;
-	end
+	dk_q   <= dkbuf[dk_addr];
+	dk_ok1 <= dk_ok;
+	sx_r   <= sx_now;
+end
+
+wire [7:0] dk_v = dk_ok1 ? dk_q : 8'd0;
+
+reg [7:0] t_near, t_far1, t_far2;
+reg [7:0] near_d, far_d;
+always @(posedge clk_sys) begin
+	case (sx_r)                    // the read issued one clock earlier
+		2'd0: t_near <= dk_v;
+		2'd1: t_far1 <= dk_v;
+		2'd2: t_far2 <= dk_v;
+		default: begin
+			near_d <= t_near;
+			far_d  <= ({1'b0, t_far1} + {1'b0, t_far2}) >> 1;
+		end
+	endcase
+end
+
+always @(posedge clk_sys) begin
+	q_c <= lb_a[{ny[2:0], nx}];
 	sx1  <= sx_now;
 	sy1  <= (v - GY0) & 2'd3;
 	p1_game <= pre_game;
 end
 
-// Grain is keyed to the output pixel, and takes one cycle, so it is generated
-// from the same coordinates the grid stage will see.
-wire [7:0] grain_q;
+// Grain is keyed to the reflector sheet, which sits behind the dot field and is
+// not registered to it, so it is addressed in game-area pixels. Outside the game
+// area the coordinates run past the baked field, but de is low there.
+wire signed [8:0] grain_q;
 brick_grain grain_gen (
-	.clk  ( clk_sys ),
-	.x    ( h_pre   ),
-	.y    ( v       ),
-	.seed ( 8'd7    ),        // dmg.json defects.seed
-	.g    ( grain_q )
+	.clk  ( clk_sys        ),
+	.gx   ( h_pre - GX0[9:0] ),
+	.gy   ( v - GY0[9:0]     ),
+	.seed ( 8'd7           ),   // dmg.json defects.seed
+	.g    ( grain_q        )
 );
 
 wire [23:0] grid_rgb;
 brick_grid grid (
 	.clk      ( clk_sys  ),
 	.cell_rgb ( q_c      ),
-	.up_rgb   ( q_u      ),
-	.left_rgb ( q_l      ),
-	.ul_rgb   ( q_ul     ),
+	.near_d   ( near_d   ),
+	.far_d    ( far_d    ),
 	.sx       ( sx1      ),
 	.sy       ( sy1      ),
 	.grain    ( grain_q  ),
