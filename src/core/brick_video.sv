@@ -104,9 +104,9 @@ end
 wire start_frame = (v == GY0 - 2) && (h == 0);
 wire row_tick    = (v >= GY0) && (v < GY0 + 572) && (((v - GY0) & 10'd3) == 0) && (h == 0);
 
-wire [7:0]  lb_waddr;
-wire [23:0] lb_wdata;
-wire        lb_wren, lb_wbank;
+wire [7:0]  cc_x, cc_row;
+wire [23:0] cc_rgb;
+wire        cc_v, cc_bank;
 
 brick_color color (
 	.clk         ( clk_sys      ),
@@ -115,15 +115,38 @@ brick_color color (
 	.row_disp    ( disp_row     ),
 	.fb_addr     ( col_fb_addr  ),
 	.fb_q        ( col_fb_q     ),
-	.lb_waddr    ( lb_waddr     ),
-	.lb_wdata    ( lb_wdata     ),
-	.lb_wren     ( lb_wren      ),
-	.lb_wbank    ( lb_wbank     )
+	.lb_waddr    ( cc_x         ),
+	.lb_wdata    ( cc_rgb       ),
+	.lb_wren     ( cc_v         ),
+	.lb_wbank    ( cc_bank      ),
+	.lb_wrow     ( cc_row       )
 );
+
+// Persistence: the analog cell state, read-modify-written once per native
+// pixel per frame. Adds 7 cycles, well inside the 4-line lead.
+wire [7:0]  gh_x;
+wire [23:0] gh_rgb;
+wire        gh_v;
+
+brick_ghost ghost (
+	.clk     ( clk_sys ),
+	.in_v    ( cc_v    ),
+	.in_row  ( cc_row  ),
+	.in_x    ( cc_x    ),
+	.in_rgb  ( cc_rgb  ),
+	.out_v   ( gh_v    ),
+	.out_x   ( gh_x    ),
+	.out_rgb ( gh_rgb  )
+);
+
+// the bank the ghost's output belongs to, delayed to match its 3 stages
+reg [6:0] bank_dly;
+always @(posedge clk_sys) bank_dly <= {bank_dly[5:0], cc_bank};
+wire lb_wbank = bank_dly[6];
 
 // processed rows, double-buffered by native-row parity
 reg [23:0] lb[0:511];
-always @(posedge clk_sys) if (lb_wren) lb[{lb_wbank, lb_waddr}] <= lb_wdata;
+always @(posedge clk_sys) if (gh_v) lb[{lb_wbank, gh_x}] <= gh_rgb;
 
 // Fetch pipeline: the line buffer has a registered address and the colour is
 // registered once more, so coordinates are taken 2 clocks ahead. The lookahead

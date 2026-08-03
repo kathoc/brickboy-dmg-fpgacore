@@ -31,7 +31,8 @@ module brick_color (
 	output reg  [7:0]  lb_waddr,
 	output reg  [23:0] lb_wdata,
 	output reg         lb_wren,
-	output reg         lb_wbank
+	output reg         lb_wbank,
+	output reg  [7:0]  lb_wrow
 );
 
 // dmg.json dmgPalette / grid.bgTint, x255
@@ -387,6 +388,7 @@ always @(posedge clk) begin
 	lb_wren  <= f4_v;
 	lb_waddr <= f4_x;
 	lb_wbank <= cur_row[0];
+	lb_wrow  <= cur_row;
 	lb_wdata <= { mix8(tone(c4r), PBG[23:16], K_BLACKL),
 	              mix8(tone(c4g), PBG[15:8],  K_BLACKL),
 	              mix8(tone(c4b), PBG[7:0],   K_BLACKL) };
