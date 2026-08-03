@@ -2,36 +2,32 @@
 // (dmg-lut path) plus a running-IIR form of FRAG_COLUMN_REDUCE.
 //
 // One native row is processed per display row, four raster lines ahead of the
-// scanout that consumes it. All maths is 8.8 / Q0.8 fixed point; the constants
-// are the dmg.json profile values scaled by 256 and noted inline.
+// scanout that consumes it. All arithmetic goes through explicit wide
+// intermediates - Verilog sizes an expression by its context, and an 8-bit
+// context silently truncates a 16-bit product, which is exactly the class of
+// bug the first revision of this file shipped.
 //
-// The processing order is the shader's (display-pipeline.md section 3-2):
-//   palette -> bleed -> density -> offTint -> crosstalk -> panelGamma ->
-//   saturation -> warm -> contrast -> brightness -> blackLift
+// Order (display-pipeline.md 3-2): palette -> bleed -> density -> offTint ->
+// crosstalk -> panelGamma -> saturation -> warm -> contrast -> brightness ->
+// blackLift.
 //
-// Crosstalk field adaptation (plan section 3-3 (2)): the shader integrates 40
-// taps above + below and 24 leftward per pixel, which has no memory bandwidth
-// on this device. Instead:
-//   down term  A[x] <- beta_v * (A[x] + d^2)   per row, top to bottom
-//   row term   H    <- beta_h * (H + d^2)      per pixel, left to right
-//   edge term  |d(below) - d(above)| * 0.4
-// with beta matching the shader's decayV=12 / decayH=8. The weak upward bleed
-// (0.4x) needs future rows and is NOT implemented yet - to be judged against
-// the RetroArch port during tuning. Per-column gain noise (#49) also pending.
+// Crosstalk field (plan 3-3(2)) is the running-IIR form of the shader's taps:
+//   down  A[x] <- exp(-1/12) * (A[x] + d^2)   rows, top to bottom
+//   row   H    <- exp(-1/8)  * (H + d^2)      pixels, left to right
+//   edge  0.4 * |d(below) - d(above)|
+// The weak upward bleed (0.4x) and per-column gain noise (#49) are pending,
+// to be judged against the RetroArch port.
 
 module brick_color (
 	input  wire        clk,
 
-	// row triggers (single-cycle pulses)
 	input  wire        start_frame,   // prepare rows 0/1, process row 0
 	input  wire        row_tick,      // process the next row
-	input  wire [7:0]  row_disp,      // native row currently entering display
+	input  wire [7:0]  row_disp,      // native row entering display
 
-	// frame buffer read port (2-bit shades)
 	output reg  [14:0] fb_addr,
 	input  wire [1:0]  fb_q,
 
-	// processed-row output (RGB888), double-buffered by row parity
 	output reg  [7:0]  lb_waddr,
 	output reg  [23:0] lb_wdata,
 	output reg         lb_wren,
@@ -45,26 +41,25 @@ localparam [23:0] PAL2 = {8'd71,  8'd130, 8'd66 };
 localparam [23:0] PAL3 = {8'd33,  8'd92,  8'd43 };
 localparam [23:0] PBG  = {8'd237, 8'd217, 8'd149};
 
-// Q0.8 constants (dmg.json value x256)
-localparam K_BLEED    = 8'd41;    // bleed 0.16
-localparam K_DENSITY  = 8'd128;   // density 0.5 = the neutral dial
-localparam K_OFFTINT  = 8'd13;    // offTint 0.1 x density 0.5
-localparam K_XTALK    = 8'd44;    // crosstalk 0.34 x density 0.5
-localparam K_XT_GRAY  = 8'd102;   // crosstalkGrayField 0.4
-localparam K_XT_SIGN  = 8'd56;    // crosstalkSigned 0.22
-localparam K_XT_CLAMP = 8'd166;   // darken clamp 0.65
-localparam K_SAT      = 8'd218;   // saturation 0.85
-localparam K_WARM_R   = 8'd8;     // warm 0.06 x (0.5, 0.15, -0.4)
-localparam K_WARM_G   = 8'd2;
-localparam K_WARM_B   = 8'd6;     // subtracted
-localparam K_CONTRAST = 8'd225;   // contrast 0.88
-localparam K_BRIGHT   = 8'd225;   // brightness 0.88
-localparam K_BLACKL   = 8'd26;    // blackLift 0.1
-localparam K_BETA_V   = 8'd235;   // exp(-1/12), decayV 12
-localparam K_WN_V     = 8'd20;    // 1 - exp(-1/12)
-localparam K_BETA_H   = 8'd226;   // exp(-1/8), decayH 8
-localparam K_WN_H     = 8'd30;    // 1 - exp(-1/8)
-localparam K_XT_EDGE  = 8'd102;   // crosstalkEdge 0.4
+// Q0.8 constants (dmg.json x256)
+localparam [7:0] K_BLEED    = 8'd41;    // bleed 0.16
+localparam [7:0] K_OFFTINT  = 8'd13;    // offTint 0.1 x density 0.5
+localparam [7:0] K_XTALK    = 8'd44;    // crosstalk 0.34 x density 0.5
+localparam [7:0] K_XT_GRAY  = 8'd102;   // crosstalkGrayField 0.4
+localparam [7:0] K_XT_SIGN  = 8'd56;    // crosstalkSigned 0.22
+localparam [7:0] K_XT_CLAMP = 8'd166;   // darken clamp 0.65
+localparam [7:0] K_SAT      = 8'd218;   // saturation 0.85
+localparam [7:0] K_WARM_R   = 8'd8;     // warm 0.06 x (0.5, 0.15, -0.4)
+localparam [7:0] K_WARM_G   = 8'd2;
+localparam [7:0] K_WARM_B   = 8'd6;     // subtracted
+localparam [7:0] K_CONTRAST = 8'd225;   // contrast 0.88
+localparam [7:0] K_BRIGHT   = 8'd225;   // brightness 0.88
+localparam [7:0] K_BLACKL   = 8'd26;    // blackLift 0.1
+localparam [7:0] K_BETA_V   = 8'd235;   // exp(-1/12)
+localparam [7:0] K_WN_V     = 8'd20;    // 1 - exp(-1/12)
+localparam [7:0] K_BETA_H   = 8'd226;   // exp(-1/8)
+localparam [7:0] K_WN_H     = 8'd30;    // 1 - exp(-1/8)
+localparam [7:0] K_XT_EDGE  = 8'd102;   // crosstalkEdge 0.4
 
 localparam byte unsigned LUT_GAMMA[0:255] = '{
   8'd0, 8'd1, 8'd1, 8'd2, 8'd3, 8'd3, 8'd4, 8'd5, 8'd6, 8'd6, 8'd7, 8'd8, 8'd9, 8'd10, 8'd10, 8'd11,
@@ -105,8 +100,7 @@ localparam byte unsigned LUT_OFFW[0:255] = '{
 };
 
 
-// darkness^2 for the 4 shades, Q0.8: (s/3)^2
-function automatic [7:0] dsq(input [1:0] s);
+function automatic [7:0] dsq(input [1:0] s);  // (shade/3)^2, Q0.8
 	case (s)
 		2'd0: dsq = 8'd0;
 		2'd1: dsq = 8'd28;
@@ -115,8 +109,7 @@ function automatic [7:0] dsq(input [1:0] s);
 	endcase
 endfunction
 
-// darkness, Q0.8
-function automatic [7:0] dlin(input [1:0] s);
+function automatic [7:0] dlin(input [1:0] s); // shade/3, Q0.8
 	case (s)
 		2'd0: dlin = 8'd0;
 		2'd1: dlin = 8'd85;
@@ -134,136 +127,152 @@ function automatic [23:0] pal(input [1:0] s);
 	endcase
 endfunction
 
-function automatic [7:0] sat8(input signed [17:0] v);
+function automatic [7:0] sat8(input signed [19:0] v);
 	sat8 = (v < 0) ? 8'd0 : (v > 255) ? 8'd255 : v[7:0];
 endfunction
 
+// a + (b - a) * k / 256. Never leaves [0,255], so no clamp is needed, but the
+// intermediate is computed wide and signed.
+function automatic [7:0] mix8(input [7:0] a, input [7:0] b, input [7:0] k);
+	reg signed [17:0] d;
+	begin
+		d = ($signed({1'b0, b}) - $signed({1'b0, a})) * $signed({1'b0, k});
+		mix8 = a + d[15:8];
+	end
+endfunction
+
+// luma, exact: (77 R + 150 G + 29 B) >> 8
+function automatic [7:0] luma8(input [7:0] r, input [7:0] g, input [7:0] b);
+	reg [16:0] t;
+	begin
+		t = 17'd77 * r + 17'd150 * g + 17'd29 * b;
+		luma8 = t[15:8];
+	end
+endfunction
+
 // --------------------------------------------------------------- row cache ---
-// Three cached native rows: above / current / below. Indexed FF arrays - the
-// muxes are cheap at this clock and keep the streaming logic trivial.
 
 reg [1:0] row_up[0:159], row_cur[0:159], row_dn[0:159];
 
 // ---------------------------------------------------------- column IIR RAM ---
-// A[x], Q4.8 (max ~11.5 x 256). Read at stage f0, written back at stage f1.
 
 reg [13:0] colA[0:159];
 reg [13:0] colA_q;
-reg [15:0] rowH;                 // row-direction IIR, Q4.8-ish (bounded < 12<<8)
+reg [15:0] rowH;
 
 // --------------------------------------------------------------------- FSM ---
 
 localparam S_IDLE = 3'd0, S_PF0 = 3'd1, S_PF1 = 3'd2, S_PROC = 3'd3;
 
 reg [2:0]  state = S_IDLE;
-reg [7:0]  x;                    // phase position
-reg [7:0]  cur_row;              // native row being processed
-reg        first_frame_row;      // processing row 0 (colA cleared on the fly)
+reg [8:0]  x;                    // 9 bits: runs past 159 during pipeline flush
+reg [8:0]  x_d1;
+reg [7:0]  cur_row;
+reg        first_frame_row;
+reg        pf_lat;
 
-// fb addressing: row*160 + x  (row*160 = row<<7 + row<<5)
 function automatic [14:0] fbaddr(input [7:0] r, input [7:0] xx);
 	fbaddr = {r, 7'b0} + {2'b0, r, 5'b0} + xx;
 endfunction
 
-// clamp row+1 at the bottom edge (shader clamps the same way)
 wire [7:0] row_below = (cur_row == 8'd143) ? 8'd143 : cur_row + 8'd1;
 
-reg [1:0] pf_lat;                // fb read latency tracker
-reg [7:0] x_d1;
-
+// Transition assignments live at the END of each branch so nothing can
+// override them - the first revision incremented x after setting it to zero,
+// and the increment won.
 always @(posedge clk) begin
 	case (state)
 	S_IDLE: begin
 		if (start_frame) begin
-			// row 0: fill current (and duplicate into above), then below=row1
 			cur_row <= 8'd0;
 			first_frame_row <= 1'b1;
-			x <= 8'd0; pf_lat <= 0;
 			fb_addr <= fbaddr(8'd0, 8'd0);
+			x <= 0; x_d1 <= 0; pf_lat <= 0;
 			state <= S_PF0;
 		end else if (row_tick) begin
-			// rotate: above <- current <- below, then prefetch the new below
 			for (int i = 0; i < 160; i++) begin
 				row_up[i]  <= row_cur[i];
 				row_cur[i] <= row_dn[i];
 			end
 			cur_row <= row_disp + 8'd1;
 			first_frame_row <= 1'b0;
-			x <= 8'd0; pf_lat <= 0;
-			fb_addr <= fbaddr((row_disp + 8'd1 == 8'd143) ? 8'd143 : row_disp + 8'd2, 8'd0);
+			fb_addr <= fbaddr((row_disp >= 8'd142) ? 8'd143 : row_disp + 8'd2, 8'd0);
+			x <= 0; x_d1 <= 0; pf_lat <= 0;
 			state <= S_PF1;
 		end
 	end
 
-	// prefetch current row (frame start only)
 	S_PF0: begin
-		fb_addr <= fbaddr(8'd0, x + 8'd1);
-		if (pf_lat < 1) pf_lat <= pf_lat + 1'd1;
+		x <= x + 1'd1;
+		x_d1 <= x;
+		fb_addr <= fbaddr(8'd0, x[7:0] + 8'd1);
+		if (!pf_lat) pf_lat <= 1'b1;
 		else begin
-			row_cur[x_d1] <= fb_q;
-			row_up[x_d1]  <= fb_q;          // clamp: row -1 = row 0
-			if (x_d1 == 8'd159) begin
-				x <= 8'd0; pf_lat <= 0;
+			row_cur[x_d1[7:0]] <= fb_q;
+			row_up[x_d1[7:0]]  <= fb_q;      // clamp: row -1 = row 0
+			if (x_d1 == 9'd159) begin
 				fb_addr <= fbaddr(8'd1, 8'd0);
+				x <= 0; x_d1 <= 0; pf_lat <= 0;
 				state <= S_PF1;
 			end
 		end
-		x <= x + 1'd1; x_d1 <= x;
 	end
 
-	// prefetch the row below
 	S_PF1: begin
-		fb_addr <= fbaddr(first_frame_row ? 8'd1 : row_below, x + 8'd1);
-		if (pf_lat < 1) pf_lat <= pf_lat + 1'd1;
+		x <= x + 1'd1;
+		x_d1 <= x;
+		fb_addr <= fbaddr(first_frame_row ? 8'd1 : row_below, x[7:0] + 8'd1);
+		if (!pf_lat) pf_lat <= 1'b1;
 		else begin
-			row_dn[x_d1] <= fb_q;
-			if (x_d1 == 8'd159) begin
-				x <= 8'd0;
+			row_dn[x_d1[7:0]] <= fb_q;
+			if (x_d1 == 9'd159) begin
+				x <= 0; x_d1 <= 0;
 				state <= S_PROC;
 			end
 		end
-		x <= x + 1'd1; x_d1 <= x;
 	end
 
 	S_PROC: begin
 		x <= x + 1'd1;
-		if (p5_x == 8'd159 && p5_v) state <= S_IDLE;
+		if (p5_done) begin
+			x <= 0;
+			state <= S_IDLE;
+		end
 	end
 	endcase
 end
 
 // ------------------------------------------------------------ the pipeline ---
-// Runs only in S_PROC. Stage f0 is fed by x; results retire ~6 stages later.
 
-// f0: fetch taps + colA read + rowH update
-wire [7:0] xm1 = (x == 8'd0)   ? 8'd0   : x - 8'd1;
-wire [7:0] xp1 = (x == 8'd159) ? 8'd159 : x + 8'd1;
+wire        px_v  = (state == S_PROC) && (x < 9'd160);
+wire [7:0]  px    = x[7:0];
+wire [7:0]  xm1   = (px == 8'd0)   ? 8'd0   : px - 8'd1;
+wire [7:0]  xp1   = (px == 8'd159) ? 8'd159 : px + 8'd1;
 
+// f0: taps + column/row IIR state
 reg [1:0]  s_c, s_l, s_r, s_u, s_d;
 reg [7:0]  f0_x;  reg f0_v;
 reg [15:0] rowH_use;
 
+wire [24:0] rowH_new = K_BETA_H * (rowH + {8'd0, dsq(row_cur[px])});
+
 always @(posedge clk) begin
-	f0_v <= (state == S_PROC) && (x < 8'd160);
-	f0_x <= x;
-	s_c  <= row_cur[x];
+	f0_v <= px_v;
+	f0_x <= px;
+	s_c  <= row_cur[px];
 	s_l  <= row_cur[xm1];
 	s_r  <= row_cur[xp1];
-	s_u  <= row_up[x];
-	s_d  <= row_dn[x];
-	colA_q   <= first_frame_row ? 14'd0 : colA[x];
+	s_u  <= row_up[px];
+	s_d  <= row_dn[px];
+	colA_q   <= first_frame_row ? 14'd0 : colA[px];
 	rowH_use <= rowH;
-	if (state == S_PROC) begin
-		// H <- beta_h * (H + d^2(x)), used by the NEXT pixel (leftward tail)
-		rowH <= (K_BETA_H * (rowH + {8'd0, dsq(row_cur[x])})) >> 8;
-	end else begin
-		rowH <= 16'd0;
-	end
+	if (px_v) rowH <= rowH_new[23:8];
+	else if (state != S_PROC) rowH <= 16'd0;
 end
 
-// f1: palette + bleed + crosstalk field; write back colA
+// f1: palette + bleed + crosstalk field, colA writeback
 reg [7:0]  c1r, c1g, c1b;
-reg [9:0]  field1;               // Q1.8, may exceed 1.0
+reg [9:0]  field1;
 reg [7:0]  f1_x;  reg f1_v;
 
 wire [23:0] pc = pal(s_c);
@@ -271,66 +280,69 @@ wire [23:0] pl = pal(s_l);
 wire [23:0] pr = pal(s_r);
 wire [23:0] pu = pal(s_u);
 wire [23:0] pd = pal(s_d);
-wire [9:0] avg_r = ({2'b0, pl[23:16]} + {2'b0, pr[23:16]}
-                  + {2'b0, pu[23:16]} + {2'b0, pd[23:16]}) >> 2;
-wire [9:0] avg_g = ({2'b0, pl[15:8]} + {2'b0, pr[15:8]}
-                  + {2'b0, pu[15:8]} + {2'b0, pd[15:8]}) >> 2;
-wire [9:0] avg_b = ({2'b0, pl[7:0]} + {2'b0, pr[7:0]}
-                  + {2'b0, pu[7:0]} + {2'b0, pd[7:0]}) >> 2;
+wire [9:0]  avg_r = ({2'b0, pl[23:16]} + {2'b0, pr[23:16]} + {2'b0, pu[23:16]} + {2'b0, pd[23:16]}) >> 2;
+wire [9:0]  avg_g = ({2'b0, pl[15:8]}  + {2'b0, pr[15:8]}  + {2'b0, pu[15:8]}  + {2'b0, pd[15:8]})  >> 2;
+wire [9:0]  avg_b = ({2'b0, pl[7:0]}   + {2'b0, pr[7:0]}   + {2'b0, pu[7:0]}   + {2'b0, pd[7:0]})   >> 2;
 
-wire [7:0] edge_d = (dlin(s_d) > dlin(s_u)) ? dlin(s_d) - dlin(s_u)
-                                            : dlin(s_u) - dlin(s_d);
-wire [13:0] colA_new = (K_BETA_V * (colA_q + {6'd0, dsq(s_c)})) >> 8;
-wire [21:0] fld = (colA_q * K_WN_V)                    // down term
-                + ((rowH_use * K_WN_H) >> 2)           // 0.25 x row term
-                + (edge_d * K_XT_EDGE);                // edge term
+wire [7:0]  edge_d = (dlin(s_d) > dlin(s_u)) ? dlin(s_d) - dlin(s_u)
+                                             : dlin(s_u) - dlin(s_d);
+wire [22:0] colA_new = K_BETA_V * (colA_q + {6'd0, dsq(s_c)});
+wire [21:0] fld = ({8'd0, colA_q} * K_WN_V)
+                + (({6'd0, rowH_use} * K_WN_H) >> 2)
+                + ({14'd0, edge_d} * K_XT_EDGE);
 
 always @(posedge clk) begin
 	f1_v <= f0_v; f1_x <= f0_x;
-	c1r <= pc[23:16] + (((avg_r - {2'b0, pc[23:16]}) * K_BLEED) >>> 8);
-	c1g <= pc[15:8]  + (((avg_g - {2'b0, pc[15:8]})  * K_BLEED) >>> 8);
-	c1b <= pc[7:0]   + (((avg_b - {2'b0, pc[7:0]})   * K_BLEED) >>> 8);
+	c1r <= mix8(pc[23:16], avg_r[7:0], K_BLEED);
+	c1g <= mix8(pc[15:8],  avg_g[7:0], K_BLEED);
+	c1b <= mix8(pc[7:0],   avg_b[7:0], K_BLEED);
 	field1 <= (fld[21:8] > 14'd1023) ? 10'd1023 : fld[17:8];
-	if (f0_v) colA[f0_x] <= colA_new;
+	if (f0_v) colA[f0_x] <= colA_new[21:8];
 end
 
-// f2: luma + offTint  (density 0.5 is the identity; the dial mix is folded
-// into the constants above rather than implemented as runtime logic yet)
+// f2: luma + offTint (density 0.5 folded into the constants)
 reg [7:0]  c2r, c2g, c2b, luma2;
 reg [9:0]  field2;
 reg [7:0]  f2_x;  reg f2_v;
 
-wire [7:0] luma_f1 = (8'd77 * c1r + 8'd150 * c1g + 8'd29 * c1b) >> 8;
-wire [7:0] offw    = LUT_OFFW[luma_f1];
-wire [7:0] offm    = (K_OFFTINT * offw) >> 8;
+wire [7:0]  luma_f1 = luma8(c1r, c1g, c1b);
+wire [15:0] offm_w  = K_OFFTINT * LUT_OFFW[luma_f1];
+wire [7:0]  offm    = offm_w[15:8];
 
 always @(posedge clk) begin
 	f2_v <= f1_v; f2_x <= f1_x;
 	luma2 <= luma_f1;
 	field2 <= field1;
-	c2r <= c1r + ((({2'b0, PAL3[23:16]} - {2'b0, c1r}) * offm) >>> 8);
-	c2g <= c1g + ((({2'b0, PAL3[15:8]}  - {2'b0, c1g}) * offm) >>> 8);
-	c2b <= c1b + ((({2'b0, PAL3[7:0]}   - {2'b0, c1b}) * offm) >>> 8);
+	c2r <= mix8(c1r, PAL3[23:16], offm);
+	c2g <= mix8(c1g, PAL3[15:8],  offm);
+	c2b <= mix8(c1b, PAL3[7:0],   offm);
 end
 
 // f3: crosstalk application
 reg [7:0]  c3r, c3g, c3b;
 reg [7:0]  f3_x;  reg f3_v;
 
-wire [7:0] mg   = 8'd255 - ((luma2 > 8'd128) ? ((luma2 - 8'd128) << 1)
-                                             : ((8'd128 - luma2) << 1));
-wire [7:0] gryf = 8'd255 - K_XT_GRAY + ((K_XT_GRAY * mg) >> 8);
-wire [15:0] amt0 = (K_XTALK * field2) >> 8;
-wire [15:0] amt1 = (amt0 * gryf) >> 8;
-wire [7:0]  dk   = (amt1 > K_XT_CLAMP) ? K_XT_CLAMP : amt1[7:0];
-wire signed [8:0] pol = {1'b0, luma2} - 9'sd128;
-wire signed [17:0] sgn = ($signed({1'b0, K_XT_SIGN}) * $signed({1'b0, dk}) * pol) >>> 15;
+wire [7:0]  mg    = (luma2 > 8'd128) ? 8'd255 - ((luma2 - 8'd128) << 1)
+                                     : 8'd255 - ((8'd128 - luma2) << 1);
+wire [15:0] gry_w = K_XT_GRAY * mg;
+wire [8:0]  gryf  = (9'd255 - K_XT_GRAY) + gry_w[15:8];      // Q0.8, <= 255
+wire [17:0] amt0  = K_XTALK * field2;                        // Q0.16
+wire [26:0] amt1  = amt0 * gryf;                             // Q0.24
+wire [10:0] amt   = amt1[26:16] ;                            // Q0.8
+wire [7:0]  dk    = (amt > {3'b0, K_XT_CLAMP}) ? K_XT_CLAMP : amt[7:0];
+wire signed [8:0]  pol = $signed({1'b0, luma2}) - 9'sd128;
+wire signed [24:0] sgn_w = $signed({1'b0, K_XT_SIGN}) * $signed({1'b0, dk}) * pol;
+wire signed [9:0]  sgn = sgn_w >>> 15;
+
+wire [16:0] xr = c2r * (9'd256 - dk);
+wire [16:0] xg = c2g * (9'd256 - dk);
+wire [16:0] xb = c2b * (9'd256 - dk);
 
 always @(posedge clk) begin
 	f3_v <= f2_v; f3_x <= f2_x;
-	c3r <= sat8((($signed({1'b0, c2r}) * $signed({2'b0, 8'd255 - dk})) >>> 8) + sgn);
-	c3g <= sat8((($signed({1'b0, c2g}) * $signed({2'b0, 8'd255 - dk})) >>> 8) + sgn);
-	c3b <= sat8((($signed({1'b0, c2b}) * $signed({2'b0, 8'd255 - dk})) >>> 8) + sgn);
+	c3r <= sat8($signed({11'b0, xr[16:8]}) + sgn);
+	c3g <= sat8($signed({11'b0, xg[16:8]}) + sgn);
+	c3b <= sat8($signed({11'b0, xb[16:8]}) + sgn);
 end
 
 // f4: panelGamma + saturation + warm
@@ -340,42 +352,44 @@ reg [7:0]  f4_x;  reg f4_v;
 wire [7:0] gr = LUT_GAMMA[c3r];
 wire [7:0] gg = LUT_GAMMA[c3g];
 wire [7:0] gb = LUT_GAMMA[c3b];
-wire [7:0] gl = (8'd77 * gr + 8'd150 * gg + 8'd29 * gb) >> 8;
+wire [7:0] gl = luma8(gr, gg, gb);
 
-wire signed [17:0] sr = $signed({2'b0, gl}) + ((($signed({2'b0, gr}) - $signed({2'b0, gl})) * K_SAT) >>> 8) + (($signed({2'b0, gl}) * K_WARM_R) >>> 8);
-wire signed [17:0] sg = $signed({2'b0, gl}) + ((($signed({2'b0, gg}) - $signed({2'b0, gl})) * K_SAT) >>> 8) + (($signed({2'b0, gl}) * K_WARM_G) >>> 8);
-wire signed [17:0] sb = $signed({2'b0, gl}) + ((($signed({2'b0, gb}) - $signed({2'b0, gl})) * K_SAT) >>> 8) - (($signed({2'b0, gl}) * K_WARM_B) >>> 8);
+wire signed [17:0] sat_r = ($signed({1'b0, gr}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT});
+wire signed [17:0] sat_g = ($signed({1'b0, gg}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT});
+wire signed [17:0] sat_b = ($signed({1'b0, gb}) - $signed({1'b0, gl})) * $signed({1'b0, K_SAT});
+wire [15:0] w_r = gl * K_WARM_R;
+wire [15:0] w_g = gl * K_WARM_G;
+wire [15:0] w_b = gl * K_WARM_B;
 
 always @(posedge clk) begin
 	f4_v <= f3_v; f4_x <= f3_x;
-	c4r <= sat8(sr); c4g <= sat8(sg); c4b <= sat8(sb);
+	c4r <= sat8($signed({12'b0, gl}) + (sat_r >>> 8) + $signed({12'b0, w_r[15:8]}));
+	c4g <= sat8($signed({12'b0, gl}) + (sat_g >>> 8) + $signed({12'b0, w_g[15:8]}));
+	c4b <= sat8($signed({12'b0, gl}) + (sat_b >>> 8) - $signed({12'b0, w_b[15:8]}));
 end
 
-// f5: contrast + brightness + blackLift, retire into the line buffer
-reg [7:0] p5_x; reg p5_v;
+// f5: contrast + brightness + blackLift, retire
+reg p5_done;
 
 function automatic [7:0] tone(input [7:0] v);
 	reg signed [17:0] t;
+	reg signed [17:0] u;
 	begin
-		t = ((($signed({2'b0, v}) - 18'sd128) * K_CONTRAST) >>> 8) + 18'sd128; // contrast
-		t = (t * K_BRIGHT) >>> 8;                                              // brightness
-		tone = sat8(t);
+		t = (($signed({1'b0, v}) - 18'sd128) * $signed({1'b0, K_CONTRAST}));
+		t = (t >>> 8) + 18'sd128;
+		u = t * $signed({1'b0, K_BRIGHT});
+		tone = sat8(u >>> 8);
 	end
 endfunction
 
-wire [7:0] t5r = tone(c4r);
-wire [7:0] t5g = tone(c4g);
-wire [7:0] t5b = tone(c4b);
-
 always @(posedge clk) begin
-	p5_v <= f4_v; p5_x <= f4_x;
+	p5_done  <= f4_v && (f4_x == 8'd159);
 	lb_wren  <= f4_v;
 	lb_waddr <= f4_x;
 	lb_wbank <= cur_row[0];
-	lb_wdata <= {
-		t5r + ((({2'b0, PBG[23:16]} - {2'b0, t5r}) * K_BLACKL) >>> 8),
-		t5g + ((({2'b0, PBG[15:8]}  - {2'b0, t5g}) * K_BLACKL) >>> 8),
-		t5b + ((({2'b0, PBG[7:0]}   - {2'b0, t5b}) * K_BLACKL) >>> 8) };
+	lb_wdata <= { mix8(tone(c4r), PBG[23:16], K_BLACKL),
+	              mix8(tone(c4g), PBG[15:8],  K_BLACKL),
+	              mix8(tone(c4b), PBG[7:0],   K_BLACKL) };
 end
 
 endmodule
