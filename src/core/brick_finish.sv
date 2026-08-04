@@ -36,6 +36,7 @@ module brick_finish (
 	input  wire [2:0]  set_ink_r,   // dark-shade tone, per channel, 0 = off
 	input  wire [2:0]  set_ink_g,
 	input  wire [2:0]  set_ink_b,
+	input  wire [2:0]  set_refsat,  // reflector desaturation, 0 = off
 	input  wire [23:0] in_rgb,
 	output reg  [23:0] out_rgb
 );
@@ -219,20 +220,21 @@ always @(posedge clk) begin
 	fg3   <= $signed({2'b0, fh[31:24]}) - 10'sd128;
 end
 
-function automatic [7:0] sat8(input signed [19:0] v);
-	sat8 = (v < 0) ? 8'd0 : (v > 255) ? 8'd255 : v[7:0];
-endfunction
-
-function automatic [7:0] apply(input [7:0] v, input signed [17:0] f,
-                               input signed [9:0] g, input signed [11:0] ink);
-	reg signed [27:0] p;
-	reg signed [19:0] q;
-	begin
-		p = $signed({10'b0, v}) * f + 28'sd32768;
-		q = $signed(p[27:16]) + (($signed({10'b0, K_FGRAIN}) * g) >>> 7)
-		    - $signed({8'b0, ink});
-		apply = sat8(q);
-	end
+// Reflector desaturation. The mirror of the ink dials: the weight is the
+// pixel's LIGHTNESS squared, so it works on the reflector and the off elements
+// and leaves the ink alone. Pulls toward luma, which is what taking saturation
+// out of a surface means.
+function automatic [7:0] k_refsat(input [2:0] i);
+	case (i)
+		3'd0: k_refsat = 8'd0;     // off - brickboy's own reflector
+		3'd1: k_refsat = 8'd32;    // 12%
+		3'd2: k_refsat = 8'd64;    // 25%
+		3'd3: k_refsat = 8'd96;
+		3'd4: k_refsat = 8'd128;   // half
+		3'd5: k_refsat = 8'd160;
+		3'd6: k_refsat = 8'd192;
+		3'd7: k_refsat = 8'd255;   // fully grey
+	endcase
 endfunction
 
 // Ink tone. The weight is the pixel's darkness squared, so it concentrates on
@@ -252,19 +254,80 @@ function automatic [7:0] luma8(input [23:0] c);
 	end
 endfunction
 
-wire [7:0]  ink_d  = 8'd255 - luma8(c3);
-wire [15:0] ink_w  = ink_d * ink_d;                    // darkness squared
+// ---- s4: luma and the two weights ------------------------------------------
+// The ink and the reflector dials both need the pixel's luma, then its square,
+// then a multiply, then a per-channel difference. That is four dependent
+// operations and it does not close in one clock at 33.5 MHz - it cost -7.7 ns
+// when it was all in the output stage. Two stages, and the output stage does
+// nothing but add.
+reg [7:0]  lum4;
+reg [23:0] c4;
+reg signed [9:0] fg4;
+reg signed [17:0] fac4r, fac4g, fac4b;
+
+wire [7:0] lum_now = luma8(c3);
+
+always @(posedge clk) begin
+	lum4  <= lum_now;
+	c4    <= c3;
+	fg4   <= fg3;
+	fac4r <= fac3r; fac4g <= fac3g; fac4b <= fac3b;
+end
+
+// ---- s5: the per-channel offsets -------------------------------------------
+wire [7:0]  ink_d  = 8'd255 - lum4;
+wire [15:0] ink_w  = ink_d * ink_d;
+wire [15:0] rs_w   = lum4 * lum4;
 wire [15:0] ink_ar = ink_w[15:8] * k_ink(set_ink_r);
 wire [15:0] ink_ag = ink_w[15:8] * k_ink(set_ink_g);
 wire [15:0] ink_ab = ink_w[15:8] * k_ink(set_ink_b);
-wire [11:0] ink_r  = {4'b0, ink_ar[15:8]};
-wire [11:0] ink_g  = {4'b0, ink_ag[15:8]};
-wire [11:0] ink_b  = {4'b0, ink_ab[15:8]};
+wire [15:0] rs_a   = rs_w[15:8] * k_refsat(set_refsat);
+
+function automatic signed [11:0] desat(input [7:0] v, input [7:0] l,
+                                       input [7:0] amt);
+	reg signed [19:0] d;
+	begin
+		d = ($signed({1'b0, l}) - $signed({1'b0, v})) * $signed({1'b0, amt})
+		    + 20'sd128;
+		desat = d[19:8];
+	end
+endfunction
+
+reg signed [11:0] off5r, off5g, off5b;
+reg [23:0] c5;
+reg signed [9:0] fg5;
+reg signed [17:0] fac5r, fac5g, fac5b;
 
 always @(posedge clk) begin
-	out_rgb <= { apply(c3[23:16], fac3r, fg3, $signed(ink_r)),
-	             apply(c3[15:8],  fac3g, fg3, $signed(ink_g)),
-	             apply(c3[7:0],   fac3b, fg3, $signed(ink_b)) };
+	off5r <= $signed({4'b0, ink_ar[15:8]}) - desat(c4[23:16], lum4, rs_a[15:8]);
+	off5g <= $signed({4'b0, ink_ag[15:8]}) - desat(c4[15:8],  lum4, rs_a[15:8]);
+	off5b <= $signed({4'b0, ink_ab[15:8]}) - desat(c4[7:0],   lum4, rs_a[15:8]);
+	c5    <= c4;
+	fg5   <= fg4;
+	fac5r <= fac4r; fac5g <= fac4g; fac5b <= fac4b;
+end
+
+// ---- s6: apply ------------------------------------------------------------
+function automatic [7:0] sat8(input signed [19:0] v);
+	sat8 = (v < 0) ? 8'd0 : (v > 255) ? 8'd255 : v[7:0];
+endfunction
+
+function automatic [7:0] apply(input [7:0] v, input signed [17:0] f,
+                               input signed [9:0] g, input signed [11:0] off);
+	reg signed [27:0] p;
+	reg signed [19:0] q;
+	begin
+		p = $signed({10'b0, v}) * f + 28'sd32768;
+		q = $signed(p[27:16]) + (($signed({10'b0, K_FGRAIN}) * g) >>> 7)
+		    - $signed(off);
+		apply = sat8(q);
+	end
+endfunction
+
+always @(posedge clk) begin
+	out_rgb <= { apply(c5[23:16], fac5r, fg5, off5r),
+	             apply(c5[15:8],  fac5g, fg5, off5g),
+	             apply(c5[7:0],   fac5b, fg5, off5b) };
 end
 
 endmodule

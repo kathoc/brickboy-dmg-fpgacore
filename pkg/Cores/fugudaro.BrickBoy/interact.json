@@ -22,39 +22,6 @@
         "value": "0x00000001"
       },
       {
-        "name": "Enable FF",
-        "id": 1004,
-        "type": "check",
-        "enabled": true,
-        "persist": true,
-        "address": "0xF2000000",
-        "mask": "0xFFFFFFF7",
-        "defaultval": "0x00000008",
-        "value": "0x00000008"
-      },
-      {
-        "name": "Enable FF Sound",
-        "id": 1005,
-        "type": "check",
-        "enabled": true,
-        "persist": true,
-        "address": "0xF2000000",
-        "defaultval": 0,
-        "mask": "0xFFFFFFFB",
-        "value": "0x00000004"
-      },
-      {
-        "name": "No Audio Pops",
-        "id": 1006,
-        "type": "check",
-        "enabled": true,
-        "persist": true,
-        "address": "0xF2000000",
-        "mask": "0xFFFFFF7F",
-        "defaultval": "0x00000000",
-        "value": "0x00000080"
-      },
-      {
         "name": "Speaker Simulation",
         "id": 1012,
         "type": "check",
@@ -396,13 +363,37 @@
         ]
       },
       {
+        "name": "Fast Forward",
+        "id": 1004,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFFFFFFF3",
+        "defaultval": 1,
+        "options": [
+          {
+            "name": "Off",
+            "value": "0x00000000"
+          },
+          {
+            "name": "On",
+            "value": "0x00000008"
+          },
+          {
+            "name": "On + Sound",
+            "value": "0x0000000C"
+          }
+        ]
+      },
+      {
         "name": "Dead Lines",
         "id": 1020,
         "type": "list",
         "enabled": true,
         "persist": true,
-        "address": "0xF3000000",
-        "mask": "0xFFFFFFF8",
+        "address": "0xF2000000",
+        "mask": "0xFFFFFF8F",
         "defaultval": 0,
         "options": [
           {
@@ -411,31 +402,59 @@
           },
           {
             "name": "1",
-            "value": "0x00000001"
+            "value": "0x00000010"
           },
           {
             "name": "2",
-            "value": "0x00000002"
+            "value": "0x00000020"
           },
           {
             "name": "3",
-            "value": "0x00000003"
+            "value": "0x00000030"
           },
           {
             "name": "4",
-            "value": "0x00000004"
+            "value": "0x00000040"
           },
           {
             "name": "5",
-            "value": "0x00000005"
+            "value": "0x00000050"
           },
           {
             "name": "6",
-            "value": "0x00000006"
+            "value": "0x00000060"
           },
           {
             "name": "7",
-            "value": "0x00000007"
+            "value": "0x00000070"
+          }
+        ]
+      },
+      {
+        "name": "Reflector Sat.",
+        "id": 1021,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFFFFFF7D",
+        "defaultval": 1,
+        "options": [
+          {
+            "name": "Off",
+            "value": "0x00000000"
+          },
+          {
+            "name": "Low",
+            "value": "0x00000002"
+          },
+          {
+            "name": "Mid",
+            "value": "0x00000080"
+          },
+          {
+            "name": "High",
+            "value": "0x00000082"
           }
         ]
       }

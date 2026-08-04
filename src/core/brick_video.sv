@@ -42,6 +42,7 @@ module brick_video (
 	input  wire [2:0]  set_warm,
 	input  wire [2:0]  set_ink_r, set_ink_g, set_ink_b,
 	input  wire [2:0]  set_offtint,
+	input  wire [2:0]  set_refsat,
 	input  wire [2:0]  set_deadline,
 	input  wire [2:0]  set_grain,
 
@@ -339,17 +340,18 @@ brick_finish finish (
 	.set_ink_r  ( set_ink_r  ),
 	.set_ink_g  ( set_ink_g  ),
 	.set_ink_b  ( set_ink_b  ),
+	.set_refsat ( set_refsat ),
 	.in_rgb  ( grid_rgb ),
 	.out_rgb ( fin_rgb  )
 );
 
-// brick_grid adds 6 cycles and brick_finish 4, so de follows both
-reg [9:0] game_dly;
-always @(posedge clk_sys) game_dly <= {game_dly[8:0], p4_game};
+// brick_grid adds 6 cycles and brick_finish 6, so de follows both
+reg [11:0] game_dly;
+always @(posedge clk_sys) game_dly <= {game_dly[10:0], p4_game};
 
 always @(posedge clk_sys) begin
-	de  <= game_dly[9];
-	rgb <= game_dly[9] ? fin_rgb : 24'h000000;
+	de  <= game_dly[11];
+	rgb <= game_dly[11] ? fin_rgb : 24'h000000;
 
 	// Single-cycle sync pulses; hs sits at h=8 so it never overlaps vs.
 	vs <= (v == 0) && (h == 0);
