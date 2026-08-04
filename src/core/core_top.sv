@@ -499,7 +499,8 @@ logic clk_sys, clk_ram, clk_ram_90, clk_vid, clk_vid_90;
 logic pll_core_locked, pll_core_locked_s, reset_n_s, external_reset_s;
 logic [31:0] cont1_key_s, cont2_key_s, cont3_key_s, cont4_key_s;
 logic [31:0] boot_settings_s, run_settings_s;
-logic  [2:0] set_bright, set_warm, set_ink, set_grain;
+logic  [2:0] set_bright, set_warm, set_grain;
+logic  [2:0] set_ink_r, set_ink_g, set_ink_b;
 logic        speaker_en, dpad_four_way, turbo_repeat;
 
 synch_3               s01 (pll_core_locked, pll_core_locked_s,  clk_ram);
@@ -534,7 +535,9 @@ always_comb begin
   set_bright     = run_settings_s[10:8];
   set_warm       = run_settings_s[13:11];
   speaker_en     = run_settings_s[14];
-  set_ink        = run_settings_s[17:15];
+  set_ink_r      = run_settings_s[17:15];
+  set_ink_g      = run_settings_s[25:23];
+  set_ink_b      = run_settings_s[28:26];
   set_grain      = run_settings_s[20:18];
   dpad_four_way  = run_settings_s[21];
   turbo_repeat   = run_settings_s[22];
@@ -1126,7 +1129,9 @@ brick_video brick_video (
   .lcd_on      ( sgb_lcd_on     ),
   .set_bright  ( set_bright ),
   .set_warm    ( set_warm   ),
-  .set_ink     ( set_ink    ),
+  .set_ink_r   ( set_ink_r  ),
+  .set_ink_g   ( set_ink_g  ),
+  .set_ink_b   ( set_ink_b  ),
   .set_grain   ( set_grain  ),
   .lcd_vsync   ( sgb_lcd_vsync  ),
 

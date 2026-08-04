@@ -251,7 +251,10 @@ wire [15:0] gm_b = shad4[7:0]   * grain_k;
 function automatic [7:0] grainy(input [7:0] v, input [15:0] scaled, input signed [9:0] g);
 	reg signed [27:0] d;
 	begin
-		d = ($signed({12'b0, scaled}) * g) >>> 15;
+		// +16384 rounds. A plain arithmetic shift floors, so it biases every
+		// negative sample down a level while leaving positives alone - a dark
+		// cast that follows the noise, on top of coarser quantisation.
+		d = ($signed({12'b0, scaled}) * g + 28'sd16384) >>> 15;
 		grainy = sat8($signed({12'b0, v}) + d);
 	end
 endfunction

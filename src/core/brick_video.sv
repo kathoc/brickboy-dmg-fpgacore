@@ -40,7 +40,7 @@ module brick_video (
 
 	input  wire [2:0]  set_bright,   // panel trim from interact.json
 	input  wire [2:0]  set_warm,
-	input  wire [2:0]  set_ink,
+	input  wire [2:0]  set_ink_r, set_ink_g, set_ink_b,
 	input  wire [2:0]  set_grain,
 
 	output reg         hs,
@@ -312,7 +312,9 @@ brick_finish finish (
 	.gy      ( v - GY0     ),
 	.set_bright ( set_bright ),
 	.set_warm   ( set_warm   ),
-	.set_ink    ( set_ink    ),
+	.set_ink_r  ( set_ink_r  ),
+	.set_ink_g  ( set_ink_g  ),
+	.set_ink_b  ( set_ink_b  ),
 	.in_rgb  ( grid_rgb ),
 	.out_rgb ( fin_rgb  )
 );

@@ -160,9 +160,16 @@ wire signed [8:0]  mid    = $signed({1'b0, m3[31:24]}) - 9'sd128;
 // the panel resolves at any amplitude. Between them the screen gets blotchier
 // without ever getting grainier, which is the opposite of the point.
 //
-// So the knob drives the bands that read as grain - the half-dot fine band and
-// the per-dot mid band - and the coarse band stays at brickboy's own weight. At
-// index 2 the whole field is brickboy's, unchanged.
+// So above Normal the knob drives only the bands that read as grain - the
+// half-dot fine band and the per-dot mid band - while the coarse band stops at
+// brickboy's own weight. Below Normal everything comes down together, so Off is
+// actually off.
+//
+// Leaving the coarse band always on (which this did) is worse than useless: the
+// grain lands on an 8-bit output, so it can only shift a pixel by whole levels,
+// and the coarse band alone varies far too slowly to dither that. With the fast
+// bands off it posterises into flat plateaus of -1, 0 and +1 - contour bands the
+// size of the blotches, which is the camouflage.
 function automatic [8:0] band_gain(input [2:0] i);
 	case (i)
 		3'd0: band_gain = 9'd0;     // off
@@ -177,12 +184,14 @@ function automatic [8:0] band_gain(input [2:0] i);
 endfunction
 
 wire [9:0] bg = {1'b0, band_gain(contrast)};
+wire [9:0] cg = (bg > 10'd256) ? 10'd256 : bg;   // coarse stops at brickboy's
 
 wire signed [17:0] fine_s = fine * $signed({1'b0, K_FINE});
 wire signed [17:0] mid_s  = mid * $signed({1'b0, K_MID});
 wire signed [28:0] vis_s  = ($signed(fine_s[16:8]) + $signed(mid_s[16:8]))
                             * $signed({1'b0, bg});
-wire signed [10:0] sum    = coarse + vis_s[18:8];
+wire signed [19:0] crs_s  = coarse * $signed({1'b0, cg});
+wire signed [10:0] sum    = crs_s[18:8] + vis_s[18:8];
 
 // The two bands are independent, so their sum reaches +-152 while either alone
 // stays inside +-127. Clamping to +-127 - which this did - does not just cap the

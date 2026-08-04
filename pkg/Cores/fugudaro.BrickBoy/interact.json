@@ -178,50 +178,6 @@
         ]
       },
       {
-        "name": "Ink Tone",
-        "id": 1013,
-        "type": "list",
-        "enabled": true,
-        "persist": true,
-        "address": "0xF2000000",
-        "mask": "0xFFFC7FFF",
-        "defaultval": 2,
-        "options": [
-          {
-            "name": "Off",
-            "value": "0x00000000"
-          },
-          {
-            "name": "1",
-            "value": "0x00008000"
-          },
-          {
-            "name": "2",
-            "value": "0x00010000"
-          },
-          {
-            "name": "3",
-            "value": "0x00018000"
-          },
-          {
-            "name": "4",
-            "value": "0x00020000"
-          },
-          {
-            "name": "5",
-            "value": "0x00028000"
-          },
-          {
-            "name": "6",
-            "value": "0x00030000"
-          },
-          {
-            "name": "7",
-            "value": "0x00038000"
-          }
-        ]
-      },
-      {
         "name": "Grain",
         "id": 1014,
         "type": "list",
@@ -286,6 +242,138 @@
         "mask": "0xFFBFFFFF",
         "defaultval": "0x00000000",
         "value": "0x00400000"
+      },
+      {
+        "name": "Ink R",
+        "id": 1013,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFFFC7FFF",
+        "defaultval": 2,
+        "options": [
+          {
+            "name": "Off",
+            "value": "0x00000000"
+          },
+          {
+            "name": "1",
+            "value": "0x00008000"
+          },
+          {
+            "name": "2",
+            "value": "0x00010000"
+          },
+          {
+            "name": "3",
+            "value": "0x00018000"
+          },
+          {
+            "name": "4",
+            "value": "0x00020000"
+          },
+          {
+            "name": "5",
+            "value": "0x00028000"
+          },
+          {
+            "name": "6",
+            "value": "0x00030000"
+          },
+          {
+            "name": "7",
+            "value": "0x00038000"
+          }
+        ]
+      },
+      {
+        "name": "Ink G",
+        "id": 1017,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFC7FFFFF",
+        "defaultval": 2,
+        "options": [
+          {
+            "name": "Off",
+            "value": "0x00000000"
+          },
+          {
+            "name": "1",
+            "value": "0x00800000"
+          },
+          {
+            "name": "2",
+            "value": "0x01000000"
+          },
+          {
+            "name": "3",
+            "value": "0x01800000"
+          },
+          {
+            "name": "4",
+            "value": "0x02000000"
+          },
+          {
+            "name": "5",
+            "value": "0x02800000"
+          },
+          {
+            "name": "6",
+            "value": "0x03000000"
+          },
+          {
+            "name": "7",
+            "value": "0x03800000"
+          }
+        ]
+      },
+      {
+        "name": "Ink B",
+        "id": 1018,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xE3FFFFFF",
+        "defaultval": 2,
+        "options": [
+          {
+            "name": "Off",
+            "value": "0x00000000"
+          },
+          {
+            "name": "1",
+            "value": "0x04000000"
+          },
+          {
+            "name": "2",
+            "value": "0x08000000"
+          },
+          {
+            "name": "3",
+            "value": "0x0C000000"
+          },
+          {
+            "name": "4",
+            "value": "0x10000000"
+          },
+          {
+            "name": "5",
+            "value": "0x14000000"
+          },
+          {
+            "name": "6",
+            "value": "0x18000000"
+          },
+          {
+            "name": "7",
+            "value": "0x1C000000"
+          }
+        ]
       }
     ],
     "messages": []
