@@ -34,7 +34,7 @@ module brick_grain (
 	input  wire [9:0]  gx,      // output pixel within the game area, 0..639
 	input  wire [9:0]  gy,      // 0..575
 	input  wire [7:0]  seed,
-	output reg  signed [8:0] g  // +-127 = +-1 of the stored grain range
+	output reg  signed [9:0] g  // +-127 = +-1 of the stored grain range
 );
 
 `include "brick_grain_coarse.svh"
@@ -135,9 +135,17 @@ wire signed [8:0]  fine   = $signed({1'b0, h3[31:24]}) - 9'sd128;
 wire signed [17:0] fine_s = fine * $signed({1'b0, K_FINE});
 wire signed [10:0] sum    = coarse + fine_s[16:8];
 
+// The two bands are independent, so their sum reaches +-152 while either alone
+// stays inside +-127. Clamping to +-127 - which this did - does not just cap the
+// amplitude: wherever the coarse band is near its extreme the sum saturates and
+// the FINE band is flattened out with it, leaving smooth patches shaped exactly
+// like the coarse blotches. That is the water-stain look, and it also collapses
+// the range of dot densities to a single tone inside those patches. Carry the
+// full range instead; 127 still means 1.0, the sum simply passes 1.0 sometimes,
+// which is what a sum of two noise bands does.
 always @(posedge clk) begin
-	g <= (sum >  11'sd127) ?  9'sd127 :
-	     (sum < -11'sd127) ? -9'sd127 : sum[8:0];
+	g <= (sum >  11'sd511) ?  10'sd511 :
+	     (sum < -11'sd511) ? -10'sd511 : sum[9:0];
 end
 
 endmodule

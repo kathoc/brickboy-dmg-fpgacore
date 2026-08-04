@@ -119,9 +119,9 @@ function automatic [7:0] k_ink(input [2:0] i);
 		3'd2: k_ink = 8'd24;
 		3'd3: k_ink = 8'd36;
 		3'd4: k_ink = 8'd48;
-		3'd5: k_ink = 8'd64;
-		3'd6: k_ink = 8'd80;
-		3'd7: k_ink = 8'd96;
+		3'd5: k_ink = 8'd72;
+		3'd6: k_ink = 8'd104;
+		3'd7: k_ink = 8'd144;   // deep, saturated dark green
 	endcase
 endfunction
 
@@ -234,8 +234,13 @@ function automatic [7:0] apply(input [7:0] v, input signed [17:0] f,
 endfunction
 
 // Ink tone. The weight is the pixel's darkness squared, so it concentrates on
-// the element and leaves the reflector alone, and the three channels come down
-// by 1 : 0.75 : 0.25 - which darkens while leaving blue standing, i.e. navy.
+// the element and leaves the reflector alone.
+//
+// R and B come down TOGETHER and green is held back (1 : 0.5 : 1), so the ink
+// deepens into a dark, saturated green rather than drifting toward navy. The
+// first version brought blue down least, which added a blue component instead of
+// a black one; what the DMG's ink actually does as it darkens is lose red and
+// blue while the green stays, which is the same thing as mixing black in.
 function automatic [7:0] luma8(input [23:0] c);
 	reg [16:0] s;
 	begin
@@ -248,8 +253,8 @@ wire [7:0]  ink_d  = 8'd255 - luma8(c3);
 wire [15:0] ink_w  = ink_d * ink_d;                    // darkness squared
 wire [15:0] ink_a  = ink_w[15:8] * k_ink(set_ink);
 wire [11:0] ink_r  = {4'b0, ink_a[15:8]};
-wire [11:0] ink_g  = {4'b0, ink_a[15:8]} - {6'b0, ink_a[15:10]};   // x0.75
-wire [11:0] ink_b  = {6'b0, ink_a[15:10]};                          // x0.25
+wire [11:0] ink_g  = {5'b0, ink_a[15:9]};                           // x0.5
+wire [11:0] ink_b  = {4'b0, ink_a[15:8]};
 
 always @(posedge clk) begin
 	out_rgb <= { apply(c3[23:16], fac3r, fg3, $signed(ink_r)),

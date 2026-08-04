@@ -257,7 +257,7 @@ end
 // Grain is keyed to the reflector sheet, which sits behind the dot field and is
 // not registered to it, so it is addressed in game-area pixels. Outside the game
 // area the coordinates run past the baked field, but de is low there.
-wire signed [8:0] grain_q;
+wire signed [9:0] grain_q;
 brick_grain grain_gen (
 	.clk  ( clk_sys        ),
 	.gx   ( h_pre - GX0[9:0] ),

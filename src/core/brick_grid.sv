@@ -35,7 +35,7 @@ module brick_grid (
 	input  wire [7:0]  far_d,      // ...and ~3.24 dots, the broad penumbra
 	input  wire [1:0]  sx,         // sub-pixel position inside the cell
 	input  wire [1:0]  sy,
-	input  wire signed [8:0] grain, // reflector sheet grain, +-127 = +-1
+	input  wire signed [9:0] grain, // reflector sheet grain, +-127 = +-1
 	input  wire [7:0]  grain_k,    // grain contrast; 8 = brickboy's own
 
 	output reg  [23:0] out_rgb
@@ -241,7 +241,7 @@ wire [23:0] shad_w = { mix8(grid3[23:16], DROP_R, amt3),
 
 always @(posedge clk) begin
 	shad4 <= shad_w;
-	gr4   <= {grain[8], grain};
+	gr4   <= grain;
 end
 
 wire [15:0] gm_r = shad4[23:16] * grain_k;
