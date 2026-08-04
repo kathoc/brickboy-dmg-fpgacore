@@ -279,7 +279,9 @@ function automatic [7:0] k_paper_of(input [2:0] i);
 		3'd7: k_paper_of = 8'd40;
 	endcase
 endfunction
-wire [7:0] grain_k = k_paper_of(set_grain);
+// brick_grain now carries the contrast knob per band; the paper weight here
+// stays at brickboy's 0.03.
+wire [7:0] grain_k = 8'd8;
 
 wire [23:0] grid_rgb;
 brick_grid grid (

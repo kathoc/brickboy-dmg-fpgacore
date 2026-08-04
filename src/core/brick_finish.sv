@@ -115,13 +115,13 @@ endfunction
 function automatic [7:0] k_ink(input [2:0] i);
 	case (i)
 		3'd0: k_ink = 8'd0;     // off
-		3'd1: k_ink = 8'd12;
-		3'd2: k_ink = 8'd24;
-		3'd3: k_ink = 8'd36;
-		3'd4: k_ink = 8'd48;
-		3'd5: k_ink = 8'd72;
-		3'd6: k_ink = 8'd104;
-		3'd7: k_ink = 8'd144;   // deep, saturated dark green
+		3'd1: k_ink = 8'd20;
+		3'd2: k_ink = 8'd40;
+		3'd3: k_ink = 8'd64;
+		3'd4: k_ink = 8'd96;
+		3'd5: k_ink = 8'd136;
+		3'd6: k_ink = 8'd184;
+		3'd7: k_ink = 8'd240;   // very nearly black, with a navy cast
 	endcase
 endfunction
 
@@ -236,11 +236,15 @@ endfunction
 // Ink tone. The weight is the pixel's darkness squared, so it concentrates on
 // the element and leaves the reflector alone.
 //
-// R and B come down TOGETHER and green is held back (1 : 0.5 : 1), so the ink
-// deepens into a dark, saturated green rather than drifting toward navy. The
-// first version brought blue down least, which added a blue component instead of
-// a black one; what the DMG's ink actually does as it darkens is lose red and
-// blue while the green stays, which is the same thing as mixing black in.
+// All three channels come down almost together (1 : 1 : 0.85), so the ink sinks
+// toward black with blue the last thing standing - a dark navy at the top of the
+// dial rather than a colour.
+//
+// This took two passes to get right. The first version held blue back, which
+// added a blue CAST instead of darkening. The second held green back, on the
+// reasoning that a DMG's ink is green - but holding any channel back stops the
+// ink sinking, and it simply saturated into a deep green and stayed there. What
+// makes ink darker is less light, not a different hue.
 function automatic [7:0] luma8(input [23:0] c);
 	reg [16:0] s;
 	begin
@@ -253,8 +257,8 @@ wire [7:0]  ink_d  = 8'd255 - luma8(c3);
 wire [15:0] ink_w  = ink_d * ink_d;                    // darkness squared
 wire [15:0] ink_a  = ink_w[15:8] * k_ink(set_ink);
 wire [11:0] ink_r  = {4'b0, ink_a[15:8]};
-wire [11:0] ink_g  = {5'b0, ink_a[15:9]};                           // x0.5
-wire [11:0] ink_b  = {4'b0, ink_a[15:8]};
+wire [11:0] ink_g  = {4'b0, ink_a[15:8]};
+wire [11:0] ink_b  = {4'b0, ink_a[15:8]} - {7'b0, ink_a[15:11]};    // x0.85
 
 always @(posedge clk) begin
 	out_rgb <= { apply(c3[23:16], fac3r, fg3, $signed(ink_r)),

@@ -25,9 +25,12 @@ def grain_field(w, h, seed=7, k_fine=167, gain=1.166):
     lo = q[cy, cx] + ((q[cy + 1, cx] - q[cy, cx]) * fy >> 4)
     hi = q[cy, cx + 1] + ((q[cy + 1, cx + 1] - q[cy, cx + 1]) * fy >> 4)
     coarse = lo + ((hi - lo) * fx >> 4)
-    hsh = bake_grain.hash2(gx >> 1, gy >> 1, int(round(seed * 1013)))
+    s = int(round(seed * 1013))
+    hsh = bake_grain.hash2(gx >> 1, gy >> 1, s)
     fine = np.floor(hsh * 256).astype(np.int64) - 128
-    return np.clip(coarse + ((fine * k_fine) >> 8), -127, 127)
+    msh = bake_grain.hash2(gx >> 2, gy >> 2, s + 91)
+    mid = np.floor(msh * 256).astype(np.int64) - 128
+    return np.clip(coarse + ((fine * k_fine) >> 8) + ((mid * 24) >> 8), -511, 511)
 
 
 def render(shades, grain=True):

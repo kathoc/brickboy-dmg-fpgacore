@@ -34,6 +34,7 @@ module brick_grain (
 	input  wire [9:0]  gx,      // output pixel within the game area, 0..639
 	input  wire [9:0]  gy,      // 0..575
 	input  wire [7:0]  seed,
+	input  wire [2:0]  contrast,   // drives the visible bands only; 2 = brickboy
 	output reg  signed [9:0] g  // +-127 = +-1 of the stored grain range
 );
 
@@ -46,6 +47,20 @@ localparam int COLS = 41;      // lattice columns; 160 dots / 4 + 1
 // averaging - and sub-dot detail is below what the Pocket's panel resolves
 // anyway. tools/bake_grain.py prints this number.
 localparam [8:0] K_FINE = 9'd167;
+
+// The band the 4-dot lattice throws away, put back at runtime.
+//
+// reflector.ts evaluates its coarse band once per DOT; sampling it every 4 dots
+// and interpolating drops everything between 1 and 3 dots - measured, sigma
+// 0.0543 of full scale with correlation +0.70 at one dot and +0.04 at three.
+// That is the band that makes individual dots differ in density from their
+// neighbours, and without it the sheet reads as an even sand grain under a few
+// big blotches, with nothing in between. Storing the lattice at 2 dots instead
+// would be exact but costs 7 more M10K against 91% already used, so this is one
+// hash per dot: shorter correlation than the original (1 dot against 2) at no
+// memory at all. 0.0543 * 127 / (255/sqrt(12)) = 24/256.
+localparam [8:0] K_MID = 9'd24;
+localparam int   BG_UNIT = 256;   // band_gain at brickboy's own weight
 
 // ---- s0: lattice address and the fine hash's first mix ----------------------
 // One lattice step is 4 dots = 16 output pixels, so the cell index is gx[9:4]
@@ -62,12 +77,14 @@ wire [11:0] rowbase = {cy, 5'b0} + {cy, 3'b0} + cy;
 reg [11:0] a0, a1;
 reg [3:0]  fx1, fy1;
 
-// reflector.ts hash2, on the 2x2 output-pixel block.
+// reflector.ts hash2, on the 2x2 output-pixel block, and again per native dot.
 wire [31:0] hseed = seed * 32'd1442695041;
 wire [31:0] hmix  = {22'b0, gx[9:1]} * 32'd374761393
                   + {22'b0, gy[9:1]} * 32'd668265263 + hseed;
+wire [31:0] mmix  = {23'b0, gx[9:2]} * 32'd374761393
+                  + {23'b0, gy[9:2]} * 32'd668265263 + hseed + 32'd91;
 
-reg [31:0] h1;
+reg [31:0] h1, m1;
 
 always @(posedge clk) begin
 	a0  <= rowbase + cx;
@@ -75,6 +92,7 @@ always @(posedge clk) begin
 	fx1 <= fx;
 	fy1 <= fy;
 	h1  <= hmix ^ (hmix >> 13);
+	m1  <= mmix ^ (mmix >> 13);
 end
 
 // ---- s1: both lattice columns, and the hash's second mix -------------------
@@ -92,7 +110,7 @@ end
 
 reg [15:0] q0, q1;
 reg [3:0]  fx2, fy2;
-reg [31:0] h2;
+reg [31:0] h2, m2;
 
 always @(posedge clk) begin
 	q0  <= rom_a[a0];
@@ -100,6 +118,7 @@ always @(posedge clk) begin
 	fx2 <= fx1;
 	fy2 <= fy1;
 	h2  <= h1 * 32'd1274126177;
+	m2  <= m1 * 32'd1274126177;
 end
 
 // ---- s2: interpolate down the two columns, and finish the hash -------------
@@ -120,20 +139,50 @@ endfunction
 
 reg signed [8:0] cl, cr;
 reg [3:0]        fx3;
-reg [31:0]       h3;
+reg [31:0]       h3, m3;
 
 always @(posedge clk) begin
 	cl  <= lerp4(c00, c01, fy2);
 	cr  <= lerp4(c10, c11, fy2);
 	fx3 <= fx2;
 	h3  <= h2 ^ (h2 >> 16);
+	m3  <= m2 ^ (m2 >> 16);
 end
 
 // ---- s3: interpolate across, add the fine band -----------------------------
 wire signed [8:0]  coarse = lerp4(cl, cr, fx3);
 wire signed [8:0]  fine   = $signed({1'b0, h3[31:24]}) - 9'sd128;
+wire signed [8:0]  mid    = $signed({1'b0, m3[31:24]}) - 9'sd128;
+
+// Driving all three bands together is what made turning the grain up produce
+// water stains instead of grain. The blotch band is 18-36 dots across, so
+// scaling it scales a slow, smooth blob; the fine band is half a dot, below what
+// the panel resolves at any amplitude. Between them the screen gets blotchier
+// without ever getting grainier, which is the opposite of the point.
+//
+// So the knob drives the bands that read as grain - the half-dot fine band and
+// the per-dot mid band - and the coarse band stays at brickboy's own weight. At
+// index 2 the whole field is brickboy's, unchanged.
+function automatic [8:0] band_gain(input [2:0] i);
+	case (i)
+		3'd0: band_gain = 9'd0;     // off
+		3'd1: band_gain = 9'd128;   // half
+		3'd2: band_gain = 9'd256;   // brickboy's own
+		3'd3: band_gain = 9'd384;
+		3'd4: band_gain = 9'd512;   // 2x
+		3'd5: band_gain = 9'd768;   // 3x
+		3'd6: band_gain = 9'd1023;  // 4x
+		3'd7: band_gain = 9'd1023;
+	endcase
+endfunction
+
+wire [9:0] bg = {1'b0, band_gain(contrast)};
+
 wire signed [17:0] fine_s = fine * $signed({1'b0, K_FINE});
-wire signed [10:0] sum    = coarse + fine_s[16:8];
+wire signed [17:0] mid_s  = mid * $signed({1'b0, K_MID});
+wire signed [28:0] vis_s  = ($signed(fine_s[16:8]) + $signed(mid_s[16:8]))
+                            * $signed({1'b0, bg});
+wire signed [10:0] sum    = coarse + vis_s[18:8];
 
 // The two bands are independent, so their sum reaches +-152 while either alone
 // stays inside +-127. Clamping to +-127 - which this did - does not just cap the
