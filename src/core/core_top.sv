@@ -468,12 +468,15 @@ always_comb begin
     32'hF8xxxxxx: begin bridge_rd_data = cmd_bridge_rd_data;          end
     32'hF1000000: begin bridge_rd_data = int_bridge_read_data;        end
     32'hF2000000: begin bridge_rd_data = int_bridge_read_data;        end
+    32'hF2000004: begin bridge_rd_data = int_bridge_read_data;        end
     default:      begin bridge_rd_data = 0;                           end
   endcase
 end
 
 reg [31:0] boot_settings = 32'h0;
 reg [31:0] run_settings  = 32'h0;
+// Word 1 is full; the display knobs alone use all 32 bits.
+reg [31:0] run_settings2 = 32'h0;
 logic [31:0] int_bridge_read_data;
 
 always_ff @(posedge clk_74a) begin
@@ -484,6 +487,7 @@ always_ff @(posedge clk_74a) begin
       32'hF0000000: begin /*         RESET ONLY          */ reset_timer <= 1; end //! Reset Core Command
       32'hF1000000: begin boot_settings  <= bridge_wr_data; reset_timer <= 1; end //! System Settings
       32'hF2000000: begin run_settings   <= bridge_wr_data;                   end //! Runtime settings
+      32'hF2000004: begin run_settings2  <= bridge_wr_data;                   end //! Runtime settings, word 2
     endcase
   end
 
@@ -491,6 +495,7 @@ always_ff @(posedge clk_74a) begin
     case (bridge_addr)
       32'hF1000000: begin int_bridge_read_data  <= boot_settings;  end //! System Settings
       32'hF2000000: begin int_bridge_read_data  <= run_settings;   end //! Runtime settings
+      32'hF2000004: begin int_bridge_read_data  <= run_settings2;  end //! Runtime settings, word 2
     endcase
   end
 end
@@ -498,9 +503,9 @@ end
 logic clk_sys, clk_ram, clk_ram_90, clk_vid, clk_vid_90;
 logic pll_core_locked, pll_core_locked_s, reset_n_s, external_reset_s;
 logic [31:0] cont1_key_s, cont2_key_s, cont3_key_s, cont4_key_s;
-logic [31:0] boot_settings_s, run_settings_s;
+logic [31:0] boot_settings_s, run_settings_s, run_settings2_s;
 logic  [2:0] set_bright, set_warm, set_grain;
-logic  [2:0] set_ink_r, set_ink_g, set_ink_b, set_offtint;
+logic  [2:0] set_ink_r, set_ink_g, set_ink_b, set_offtint, set_deadline;
 logic        speaker_en, dpad_four_way, turbo_repeat;
 
 synch_3               s01 (pll_core_locked, pll_core_locked_s,  clk_ram);
@@ -512,6 +517,7 @@ synch_3 #(.WIDTH(32)) s06 (cont3_key,       cont3_key_s,        clk_sys);
 synch_3 #(.WIDTH(32)) s07 (cont4_key,       cont4_key_s,        clk_sys);
 synch_3 #(.WIDTH(32)) s08 (boot_settings,   boot_settings_s,    clk_sys);
 synch_3 #(.WIDTH(32)) s09 (run_settings,    run_settings_s,     clk_sys);
+synch_3 #(.WIDTH(32)) s20 (run_settings2,   run_settings2_s,    clk_sys);
 synch_3               s10 (osnotify_adapter_play, cart_physical_mode, clk_sys);
 
 logic sgb_en, rumble_en, originalcolors, ff_snd_en, ff_en, sgb_border_en, gba_en, audio_no_pops;
@@ -539,6 +545,7 @@ always_comb begin
   set_ink_g      = run_settings_s[25:23];
   set_ink_b      = run_settings_s[28:26];
   set_offtint    = run_settings_s[31:29];
+  set_deadline   = run_settings2_s[2:0];
   set_grain      = run_settings_s[20:18];
   dpad_four_way  = run_settings_s[21];
   turbo_repeat   = run_settings_s[22];
@@ -1131,6 +1138,7 @@ brick_video brick_video (
   .set_bright  ( set_bright ),
   .set_warm    ( set_warm   ),
   .set_offtint ( set_offtint ),
+  .set_deadline( set_deadline ),
   .set_ink_r   ( set_ink_r  ),
   .set_ink_g   ( set_ink_g  ),
   .set_ink_b   ( set_ink_b  ),

@@ -42,6 +42,7 @@ module brick_video (
 	input  wire [2:0]  set_warm,
 	input  wire [2:0]  set_ink_r, set_ink_g, set_ink_b,
 	input  wire [2:0]  set_offtint,
+	input  wire [2:0]  set_deadline,
 	input  wire [2:0]  set_grain,
 
 	output reg         hs,
@@ -285,14 +286,35 @@ endfunction
 // stays at brickboy's 0.03.
 wire [7:0] grain_k = 8'd8;
 
+// Dead electrode lines, substituted into the cell before the dot structure -
+// see brick_deadline for why that is the right place. Adds 3 cycles, so the
+// grid's coordinates need the same delay.
+wire [23:0] dl_rgb;
+brick_deadline deadline (
+	.clk     ( clk_sys      ),
+	.sev     ( set_deadline ),
+	.nx      ( nx           ),
+	.ny      ( ny           ),
+	.in_rgb  ( q_c          ),
+	.out_rgb ( dl_rgb       )
+);
+
+reg [1:0] sx2, sx3, sx4, sy2, sy3, sy4;
+reg       p2_game, p3_game, p4_game;
+always @(posedge clk_sys) begin
+	sx2 <= sx1; sx3 <= sx2; sx4 <= sx3;
+	sy2 <= sy1; sy3 <= sy2; sy4 <= sy3;
+	p2_game <= p1_game; p3_game <= p2_game; p4_game <= p3_game;
+end
+
 wire [23:0] grid_rgb;
 brick_grid grid (
 	.clk      ( clk_sys  ),
-	.cell_rgb ( q_c      ),
+	.cell_rgb ( dl_rgb   ),
 	.near_d   ( near_d   ),
 	.far_d    ( far_d    ),
-	.sx       ( sx1      ),
-	.sy       ( sy1      ),
+	.sx       ( sx4      ),
+	.sy       ( sy4      ),
 	.grain    ( grain_q  ),
 	.grain_k  ( grain_k  ),
 	.out_rgb  ( grid_rgb )
@@ -323,7 +345,7 @@ brick_finish finish (
 
 // brick_grid adds 6 cycles and brick_finish 4, so de follows both
 reg [9:0] game_dly;
-always @(posedge clk_sys) game_dly <= {game_dly[8:0], p1_game};
+always @(posedge clk_sys) game_dly <= {game_dly[8:0], p4_game};
 
 always @(posedge clk_sys) begin
 	de  <= game_dly[9];

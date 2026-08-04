@@ -418,6 +418,50 @@
             "value": "0xE0000000"
           }
         ]
+      },
+      {
+        "name": "Dead Lines",
+        "id": 1020,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000004",
+        "mask": "0xFFFFFFF8",
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Off",
+            "value": "0x00000000"
+          },
+          {
+            "name": "1",
+            "value": "0x00000001"
+          },
+          {
+            "name": "2",
+            "value": "0x00000002"
+          },
+          {
+            "name": "3",
+            "value": "0x00000003"
+          },
+          {
+            "name": "4",
+            "value": "0x00000004"
+          },
+          {
+            "name": "5",
+            "value": "0x00000005"
+          },
+          {
+            "name": "6",
+            "value": "0x00000006"
+          },
+          {
+            "name": "7",
+            "value": "0x00000007"
+          }
+        ]
       }
     ],
     "messages": []
