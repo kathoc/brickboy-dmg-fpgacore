@@ -132,3 +132,13 @@ Provenance:
 
 Neither `budude2/openfpga-GBC` nor `Gameboy_MiSTer` declares a repository-level
 licence; the file headers do, and this repository follows them.
+
+## Support
+
+This is free, and it stays free. But it was a lot of measuring against real
+hardware to get right, and if any of it is useful to you, a little help would
+genuinely make me happy.
+
+[**Sponsor @kathoc**](https://github.com/sponsors/kathoc)
+
+No pressure at all — a star or a bug report is welcome too.
