@@ -425,7 +425,7 @@
         "type": "list",
         "enabled": true,
         "persist": true,
-        "address": "0xF2000004",
+        "address": "0xF3000000",
         "mask": "0xFFFFFFF8",
         "defaultval": 0,
         "options": [

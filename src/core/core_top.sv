@@ -468,7 +468,7 @@ always_comb begin
     32'hF8xxxxxx: begin bridge_rd_data = cmd_bridge_rd_data;          end
     32'hF1000000: begin bridge_rd_data = int_bridge_read_data;        end
     32'hF2000000: begin bridge_rd_data = int_bridge_read_data;        end
-    32'hF2000004: begin bridge_rd_data = int_bridge_read_data;        end
+    32'hF3000000: begin bridge_rd_data = int_bridge_read_data;        end
     default:      begin bridge_rd_data = 0;                           end
   endcase
 end
@@ -487,7 +487,7 @@ always_ff @(posedge clk_74a) begin
       32'hF0000000: begin /*         RESET ONLY          */ reset_timer <= 1; end //! Reset Core Command
       32'hF1000000: begin boot_settings  <= bridge_wr_data; reset_timer <= 1; end //! System Settings
       32'hF2000000: begin run_settings   <= bridge_wr_data;                   end //! Runtime settings
-      32'hF2000004: begin run_settings2  <= bridge_wr_data;                   end //! Runtime settings, word 2
+      32'hF3000000: begin run_settings2  <= bridge_wr_data;                   end //! Runtime settings, word 2
     endcase
   end
 
@@ -495,7 +495,7 @@ always_ff @(posedge clk_74a) begin
     case (bridge_addr)
       32'hF1000000: begin int_bridge_read_data  <= boot_settings;  end //! System Settings
       32'hF2000000: begin int_bridge_read_data  <= run_settings;   end //! Runtime settings
-      32'hF2000004: begin int_bridge_read_data  <= run_settings2;  end //! Runtime settings, word 2
+      32'hF3000000: begin int_bridge_read_data  <= run_settings2;  end //! Runtime settings, word 2
     endcase
   end
 end
