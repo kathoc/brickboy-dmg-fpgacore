@@ -11,30 +11,6 @@
         "value": 1
       },
       {
-        "name": "Custom Palette",
-        "id": 1002,
-        "type": "list",
-        "enabled": true,
-        "persist": true,
-        "address": "0xF2000000",
-        "mask": "0xFFFFFF9F",
-        "defaultval": 1,
-        "options": [
-          {
-            "name": "Off",
-            "value": "0x00"
-          },
-          {
-            "name": "Auto",
-            "value": "0x20"
-          },
-          {
-            "name": "Force",
-            "value": "0x60"
-          }
-        ]
-      },
-      {
         "name": "Enable Rumble",
         "id": 1003,
         "type": "check",
