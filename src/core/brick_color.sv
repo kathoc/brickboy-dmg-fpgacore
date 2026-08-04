@@ -28,6 +28,7 @@ module brick_color (
 	input  wire        row_tick,      // process the next row
 	input  wire        up_tick,       // active area done: run the upward pre-pass
 	input  wire [7:0]  row_disp,      // native row entering display
+	input  wire [2:0]  set_offtint,   // off-element tint; 2 = dmg.json's 0.1
 
 	output reg  [14:0] fb_addr,
 	input  wire [1:0]  fb_q,
@@ -48,7 +49,22 @@ localparam [23:0] PBG  = {8'd237, 8'd217, 8'd149};
 
 // Q0.8 constants (dmg.json x256)
 localparam [7:0] K_BLEED    = 8'd41;    // bleed 0.16
-localparam [7:0] K_OFFTINT  = 8'd13;    // offTint 0.1 x density 0.5
+// offTint 0.1 x density 0.5 = 13. Runtime, because how much the off elements
+// still hold is the thing that decides whether the unlit part of the panel
+// reads as bare reflector or as an LC that never fully clears - and how much of
+// that survives depends on the panel doing the showing.
+function automatic [7:0] k_offtint(input [2:0] i);
+	case (i)
+		3'd0: k_offtint = 8'd0;    // off - the reflector shows through clean
+		3'd1: k_offtint = 8'd7;
+		3'd2: k_offtint = 8'd13;   // dmg.json
+		3'd3: k_offtint = 8'd20;
+		3'd4: k_offtint = 8'd28;
+		3'd5: k_offtint = 8'd38;
+		3'd6: k_offtint = 8'd50;
+		3'd7: k_offtint = 8'd64;
+	endcase
+endfunction
 localparam [7:0] K_XTALK    = 8'd44;    // crosstalk 0.34 x density 0.5
 localparam [7:0] K_XT_GRAY  = 8'd102;   // crosstalkGrayField 0.4
 localparam [7:0] K_XT_SIGN  = 8'd56;    // crosstalkSigned 0.22
@@ -446,7 +462,7 @@ reg [7:0]  c2r, c2g, c2b, luma2;
 reg [9:0]  field2;
 reg [7:0]  f2_x;  reg f2_v;
 
-wire [15:0] offm_w = K_OFFTINT * LUT_OFFW[luma1b] + 16'd128;
+wire [15:0] offm_w = k_offtint(set_offtint) * LUT_OFFW[luma1b] + 16'd128;
 wire [7:0]  offm   = offm_w[15:8];
 
 always @(posedge clk) begin

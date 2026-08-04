@@ -41,6 +41,7 @@ module brick_video (
 	input  wire [2:0]  set_bright,   // panel trim from interact.json
 	input  wire [2:0]  set_warm,
 	input  wire [2:0]  set_ink_r, set_ink_g, set_ink_b,
+	input  wire [2:0]  set_offtint,
 	input  wire [2:0]  set_grain,
 
 	output reg         hs,
@@ -122,6 +123,7 @@ brick_color color (
 	.row_tick    ( row_tick     ),
 	.up_tick     ( up_tick      ),
 	.row_disp    ( disp_row     ),
+	.set_offtint ( set_offtint  ),
 	.fb_addr     ( col_fb_addr  ),
 	.fb_q        ( col_fb_q     ),
 	.lb_waddr    ( cc_x         ),
