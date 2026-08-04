@@ -26,62 +26,17 @@
 // and the Pocket only shows the 160 x 144 dot field, so the game area sits at
 // (16, 16) of 672 x 608 output pixels.
 
+(* multstyle = "logic" *)
 module brick_finish (
 	input  wire        clk,
 	input  wire [9:0]  gx,          // output pixel within the game area
 	input  wire [9:0]  gy,
 	input  wire [2:0]  set_bright,  // panel trim, 3 = neutral
 	input  wire [2:0]  set_warm,    // panel trim, 3 = neutral
+	input  wire [2:0]  set_ink,     // dark-shade tone toward navy, 0 = off
 	input  wire [23:0] in_rgb,
 	output reg  [23:0] out_rgb
 );
-
-// Panel trim. NOT part of the port: brickboy's numbers are reproduced exactly
-// and these ride on top, because the Pocket's LTPS LCD and the phone OLED
-// brickboy is authored against have different primaries and Analogue publishes
-// no colorimetry for the panel. Guessing a correction into the pipeline would
-// corrupt the port; a knob leaves the reference intact and lets the person
-// looking at the screen decide. Neutral (index 3) is a no-op.
-function automatic [16:0] k_bright(input [2:0] i);
-	case (i)
-		3'd0: k_bright = 17'd59768;   // 0.912
-		3'd1: k_bright = 17'd61604;   // 0.940
-		3'd2: k_bright = 17'd63570;   // 0.970
-		3'd3: k_bright = 17'd65536;   // 1.000
-		3'd4: k_bright = 17'd67502;   // 1.030
-		3'd5: k_bright = 17'd69468;   // 1.060
-		3'd6: k_bright = 17'd71434;   // 1.090
-		3'd7: k_bright = 17'd73400;   // 1.120
-	endcase
-endfunction
-
-// Warmth trades red against blue at constant green, so it moves the hue without
-// moving the luminance much.
-function automatic [16:0] k_warm_r(input [2:0] i);
-	case (i)
-		3'd0: k_warm_r = 17'd59768;
-		3'd1: k_warm_r = 17'd61604;
-		3'd2: k_warm_r = 17'd63570;
-		3'd3: k_warm_r = 17'd65536;
-		3'd4: k_warm_r = 17'd67502;
-		3'd5: k_warm_r = 17'd69468;
-		3'd6: k_warm_r = 17'd71434;
-		3'd7: k_warm_r = 17'd73400;
-	endcase
-endfunction
-
-function automatic [16:0] k_warm_b(input [2:0] i);
-	case (i)
-		3'd0: k_warm_b = 17'd71434;
-		3'd1: k_warm_b = 17'd69468;
-		3'd2: k_warm_b = 17'd67502;
-		3'd3: k_warm_b = 17'd65536;
-		3'd4: k_warm_b = 17'd63570;
-		3'd5: k_warm_b = 17'd61604;
-		3'd6: k_warm_b = 17'd59768;
-		3'd7: k_warm_b = 17'd57802;
-	endcase
-endfunction
 
 localparam [15:0] CX = 16'd19661;   // 0.30 in Q0.16
 localparam [15:0] CY = 16'd47186;   // 0.72
@@ -99,6 +54,76 @@ localparam [7:0]  K_FGRAIN = 8'd3;      // 0.012 * 255
 localparam bit [15:0] LUT_SQRT[0:255] = '{
 `include "brick_sqrt.svh"
 };
+
+// Panel trim. NOT part of the port: brickboy's numbers are reproduced exactly
+// and these ride on top, because the Pocket's LTPS LCD and the phone OLED
+// brickboy is authored against have different primaries and Analogue publishes
+// no colorimetry for the panel. Guessing a correction into the pipeline would
+// corrupt the port; a knob leaves the reference intact and lets the person
+// looking at the screen decide.
+//
+// The centre is what the Pocket's own panel wants, measured by eye on hardware:
+// -9% brightness and +9% warmth. Those are panel corrections, not brickboy's
+// numbers - the reference pipeline is untouched and these ride on top - so the
+// centre of the dial is the place the panel looks right, and the dial moves
+// around it. Index 3 is the centre; run_settings is zero before the Pocket
+// writes, so index 0 must still be usable.
+function automatic [16:0] k_bright(input [2:0] i);
+	case (i)
+		3'd0: k_bright = 17'd53740;   // 0.820
+		3'd1: k_bright = 17'd55706;   // 0.850
+		3'd2: k_bright = 17'd57672;   // 0.880
+		3'd3: k_bright = 17'd59638;   // 0.910  <- centre, the panel's -9%
+		3'd4: k_bright = 17'd61604;   // 0.940
+		3'd5: k_bright = 17'd63570;   // 0.970
+		3'd6: k_bright = 17'd65536;   // 1.000
+		3'd7: k_bright = 17'd67502;   // 1.030
+	endcase
+endfunction
+
+// Warmth trades red against blue at constant green, so it moves the hue without
+// moving the luminance much.
+function automatic [16:0] k_warm_r(input [2:0] i);
+	case (i)
+		3'd0: k_warm_r = 17'd61604;   // 0.940
+		3'd1: k_warm_r = 17'd63570;
+		3'd2: k_warm_r = 17'd65536;
+		3'd3: k_warm_r = 17'd71434;   // 1.090  <- centre, the panel's +9%
+		3'd4: k_warm_r = 17'd73400;
+		3'd5: k_warm_r = 17'd75366;
+		3'd6: k_warm_r = 17'd77332;
+		3'd7: k_warm_r = 17'd79298;   // 1.210
+	endcase
+endfunction
+
+function automatic [16:0] k_warm_b(input [2:0] i);
+	case (i)
+		3'd0: k_warm_b = 17'd69468;   // 1.060
+		3'd1: k_warm_b = 17'd67502;
+		3'd2: k_warm_b = 17'd65536;
+		3'd3: k_warm_b = 17'd59638;   // 0.910  <- centre
+		3'd4: k_warm_b = 17'd57672;
+		3'd5: k_warm_b = 17'd55706;
+		3'd6: k_warm_b = 17'd53740;
+		3'd7: k_warm_b = 17'd51774;   // 0.790
+	endcase
+endfunction
+
+// Ink tone: pushes the DARK shades toward navy and darker, weighted by how dark
+// the pixel already is, so the reflector and the light shades are untouched.
+// The Pocket's panel reads green-heavy exactly where the ink is.
+function automatic [7:0] k_ink(input [2:0] i);
+	case (i)
+		3'd0: k_ink = 8'd0;     // off
+		3'd1: k_ink = 8'd12;
+		3'd2: k_ink = 8'd24;
+		3'd3: k_ink = 8'd36;
+		3'd4: k_ink = 8'd48;
+		3'd5: k_ink = 8'd64;
+		3'd6: k_ink = 8'd80;
+		3'd7: k_ink = 8'd96;
+	endcase
+endfunction
 
 // ---- s0: module-uv ----------------------------------------------------------
 // vUv.y is measured up from the bottom, so the flip is folded in here.
@@ -197,20 +222,39 @@ function automatic [7:0] sat8(input signed [19:0] v);
 endfunction
 
 function automatic [7:0] apply(input [7:0] v, input signed [17:0] f,
-                               input signed [9:0] g);
+                               input signed [9:0] g, input signed [11:0] ink);
 	reg signed [27:0] p;
 	reg signed [19:0] q;
 	begin
 		p = $signed({10'b0, v}) * f + 28'sd32768;
-		q = $signed(p[27:16]) + (($signed({10'b0, K_FGRAIN}) * g) >>> 7);
+		q = $signed(p[27:16]) + (($signed({10'b0, K_FGRAIN}) * g) >>> 7)
+		    - $signed({8'b0, ink});
 		apply = sat8(q);
 	end
 endfunction
 
+// Ink tone. The weight is the pixel's darkness squared, so it concentrates on
+// the element and leaves the reflector alone, and the three channels come down
+// by 1 : 0.75 : 0.25 - which darkens while leaving blue standing, i.e. navy.
+function automatic [7:0] luma8(input [23:0] c);
+	reg [16:0] s;
+	begin
+		s = 17'd77*c[23:16] + 17'd150*c[15:8] + 17'd29*c[7:0] + 17'd128;
+		luma8 = s[15:8];
+	end
+endfunction
+
+wire [7:0]  ink_d  = 8'd255 - luma8(c3);
+wire [15:0] ink_w  = ink_d * ink_d;                    // darkness squared
+wire [15:0] ink_a  = ink_w[15:8] * k_ink(set_ink);
+wire [11:0] ink_r  = {4'b0, ink_a[15:8]};
+wire [11:0] ink_g  = {4'b0, ink_a[15:8]} - {6'b0, ink_a[15:10]};   // x0.75
+wire [11:0] ink_b  = {6'b0, ink_a[15:10]};                          // x0.25
+
 always @(posedge clk) begin
-	out_rgb <= { apply(c3[23:16], fac3r, fg3),
-	             apply(c3[15:8],  fac3g, fg3),
-	             apply(c3[7:0],   fac3b, fg3) };
+	out_rgb <= { apply(c3[23:16], fac3r, fg3, $signed(ink_r)),
+	             apply(c3[15:8],  fac3g, fg3, $signed(ink_g)),
+	             apply(c3[7:0],   fac3b, fg3, $signed(ink_b)) };
 end
 
 endmodule

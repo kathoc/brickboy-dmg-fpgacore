@@ -36,6 +36,7 @@ module brick_grid (
 	input  wire [1:0]  sx,         // sub-pixel position inside the cell
 	input  wire [1:0]  sy,
 	input  wire signed [8:0] grain, // reflector sheet grain, +-127 = +-1
+	input  wire [7:0]  grain_k,    // grain contrast; 8 = brickboy's own
 
 	output reg  [23:0] out_rgb
 );
@@ -52,8 +53,10 @@ localparam [7:0] K_DROP   = 8'd87;    // shadowOpacity 0.34
 // shadowColor [0.397, 0.391, 0.222] x255
 localparam [7:0] DROP_R = 8'd101, DROP_G = 8'd100, DROP_B = 8'd57;
 // finish.paper 0.01 is the TOTAL luminance sigma the profile asks for, against a
-// stored grain sigma of 1/3 - so the multiplier is 0.01 / (1/3) = 0.03.
-localparam [7:0] K_PAPER = 8'd8;      // 8/256 = 0.031
+// stored grain sigma of 1/3 - so the multiplier is 0.01 / (1/3) = 0.03, i.e.
+// grain_k = 8. It is a runtime value because the Pocket's panel resolves less
+// low-luminance contrast than the phone the profile was authored on, so the
+// same sigma reads weaker there and is worth being able to drive harder.
 
 localparam bit [7:0] LUT_SS_NEAR[0:255] = '{
   8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0,
@@ -241,9 +244,9 @@ always @(posedge clk) begin
 	gr4   <= {grain[8], grain};
 end
 
-wire [15:0] gm_r = shad4[23:16] * K_PAPER;
-wire [15:0] gm_g = shad4[15:8]  * K_PAPER;
-wire [15:0] gm_b = shad4[7:0]   * K_PAPER;
+wire [15:0] gm_r = shad4[23:16] * grain_k;
+wire [15:0] gm_g = shad4[15:8]  * grain_k;
+wire [15:0] gm_b = shad4[7:0]   * grain_k;
 
 function automatic [7:0] grainy(input [7:0] v, input [15:0] scaled, input signed [9:0] g);
 	reg signed [27:0] d;

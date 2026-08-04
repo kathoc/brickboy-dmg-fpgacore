@@ -79,6 +79,17 @@
         "value": "0x00000080"
       },
       {
+        "name": "Speaker Simulation",
+        "id": 1012,
+        "type": "check",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFFFFBFFF",
+        "defaultval": "0x00004000",
+        "value": "0x00004000"
+      },
+      {
         "name": "Panel Brightness",
         "id": 1010,
         "type": "list",
@@ -90,35 +101,35 @@
         "options": [
           {
             "name": "-9%",
-            "value": "0x0"
+            "value": "0x00000000"
           },
           {
             "name": "-6%",
-            "value": "0x100"
+            "value": "0x00000100"
           },
           {
             "name": "-3%",
-            "value": "0x200"
+            "value": "0x00000200"
           },
           {
             "name": "Normal",
-            "value": "0x300"
+            "value": "0x00000300"
           },
           {
             "name": "+3%",
-            "value": "0x400"
+            "value": "0x00000400"
           },
           {
             "name": "+6%",
-            "value": "0x500"
+            "value": "0x00000500"
           },
           {
             "name": "+9%",
-            "value": "0x600"
+            "value": "0x00000600"
           },
           {
             "name": "+12%",
-            "value": "0x700"
+            "value": "0x00000700"
           }
         ]
       },
@@ -133,49 +144,148 @@
         "defaultval": 3,
         "options": [
           {
-            "name": "Cool -9%",
-            "value": "0x0"
+            "name": "-9%",
+            "value": "0x00000000"
           },
           {
-            "name": "Cool -6%",
-            "value": "0x800"
+            "name": "-6%",
+            "value": "0x00000800"
           },
           {
-            "name": "Cool -3%",
-            "value": "0x1000"
+            "name": "-3%",
+            "value": "0x00001000"
           },
           {
             "name": "Normal",
-            "value": "0x1800"
+            "value": "0x00001800"
           },
           {
-            "name": "Warm +3%",
-            "value": "0x2000"
+            "name": "+3%",
+            "value": "0x00002000"
           },
           {
-            "name": "Warm +6%",
-            "value": "0x2800"
+            "name": "+6%",
+            "value": "0x00002800"
           },
           {
-            "name": "Warm +9%",
-            "value": "0x3000"
+            "name": "+9%",
+            "value": "0x00003000"
           },
           {
-            "name": "Warm +12%",
-            "value": "0x3800"
+            "name": "+12%",
+            "value": "0x00003800"
           }
         ]
       },
       {
-        "name": "Speaker Simulation",
-        "id": 1012,
+        "name": "Ink Tone",
+        "id": 1013,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFFFC7FFF",
+        "defaultval": 2,
+        "options": [
+          {
+            "name": "Off",
+            "value": "0x00000000"
+          },
+          {
+            "name": "1",
+            "value": "0x00008000"
+          },
+          {
+            "name": "2",
+            "value": "0x00010000"
+          },
+          {
+            "name": "3",
+            "value": "0x00018000"
+          },
+          {
+            "name": "4",
+            "value": "0x00020000"
+          },
+          {
+            "name": "5",
+            "value": "0x00028000"
+          },
+          {
+            "name": "6",
+            "value": "0x00030000"
+          },
+          {
+            "name": "7",
+            "value": "0x00038000"
+          }
+        ]
+      },
+      {
+        "name": "Grain",
+        "id": 1014,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFFE3FFFF",
+        "defaultval": 4,
+        "options": [
+          {
+            "name": "Off",
+            "value": "0x00000000"
+          },
+          {
+            "name": "Half",
+            "value": "0x00040000"
+          },
+          {
+            "name": "Normal",
+            "value": "0x00080000"
+          },
+          {
+            "name": "3",
+            "value": "0x000C0000"
+          },
+          {
+            "name": "2x",
+            "value": "0x00100000"
+          },
+          {
+            "name": "3x",
+            "value": "0x00140000"
+          },
+          {
+            "name": "4x",
+            "value": "0x00180000"
+          },
+          {
+            "name": "5x",
+            "value": "0x001C0000"
+          }
+        ]
+      },
+      {
+        "name": "D-pad 4-way",
+        "id": 1015,
         "type": "check",
         "enabled": true,
         "persist": true,
         "address": "0xF2000000",
-        "mask": "0xFFFFBFFF",
-        "defaultval": "0x00004000",
-        "value": "0x00004000"
+        "mask": "0xFFDFFFFF",
+        "defaultval": "0x00000000",
+        "value": "0x00200000"
+      },
+      {
+        "name": "X/Y Auto-fire: REPEAT",
+        "id": 1016,
+        "type": "check",
+        "enabled": true,
+        "persist": true,
+        "address": "0xF2000000",
+        "mask": "0xFFBFFFFF",
+        "defaultval": "0x00000000",
+        "value": "0x00400000"
       }
     ],
     "messages": []

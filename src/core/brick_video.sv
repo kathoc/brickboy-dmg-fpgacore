@@ -40,6 +40,8 @@ module brick_video (
 
 	input  wire [2:0]  set_bright,   // panel trim from interact.json
 	input  wire [2:0]  set_warm,
+	input  wire [2:0]  set_ink,
+	input  wire [2:0]  set_grain,
 
 	output reg         hs,
 	output reg         vs,
@@ -264,6 +266,21 @@ brick_grain grain_gen (
 	.g    ( grain_q        )
 );
 
+// Grain contrast, 2 = brickboy's own amplitude.
+function automatic [7:0] k_paper_of(input [2:0] i);
+	case (i)
+		3'd0: k_paper_of = 8'd0;    // off
+		3'd1: k_paper_of = 8'd4;
+		3'd2: k_paper_of = 8'd8;    // brickboy
+		3'd3: k_paper_of = 8'd12;
+		3'd4: k_paper_of = 8'd16;
+		3'd5: k_paper_of = 8'd24;
+		3'd6: k_paper_of = 8'd32;
+		3'd7: k_paper_of = 8'd40;
+	endcase
+endfunction
+wire [7:0] grain_k = k_paper_of(set_grain);
+
 wire [23:0] grid_rgb;
 brick_grid grid (
 	.clk      ( clk_sys  ),
@@ -273,6 +290,7 @@ brick_grid grid (
 	.sx       ( sx1      ),
 	.sy       ( sy1      ),
 	.grain    ( grain_q  ),
+	.grain_k  ( grain_k  ),
 	.out_rgb  ( grid_rgb )
 );
 
@@ -292,6 +310,7 @@ brick_finish finish (
 	.gy      ( v - GY0     ),
 	.set_bright ( set_bright ),
 	.set_warm   ( set_warm   ),
+	.set_ink    ( set_ink    ),
 	.in_rgb  ( grid_rgb ),
 	.out_rgb ( fin_rgb  )
 );
