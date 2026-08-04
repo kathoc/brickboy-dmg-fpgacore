@@ -8,3 +8,6 @@ __pycache__/
 *.qws
 tools/db/
 tools/ap_core.*
+
+# Packaged cores belong on the Releases page, not in the tree.
+build/*.zip
