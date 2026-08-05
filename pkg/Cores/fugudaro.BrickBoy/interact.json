@@ -381,36 +381,20 @@
         "defaultval": 0,
         "options": [
           {
-            "name": "Off",
+            "name": "None",
             "value": "0x00000000"
           },
           {
-            "name": "1",
+            "name": "Min",
             "value": "0x00000010"
           },
           {
-            "name": "2",
+            "name": "Mid",
             "value": "0x00000020"
           },
           {
-            "name": "3",
+            "name": "Max",
             "value": "0x00000030"
-          },
-          {
-            "name": "4",
-            "value": "0x00000040"
-          },
-          {
-            "name": "5",
-            "value": "0x00000050"
-          },
-          {
-            "name": "6",
-            "value": "0x00000060"
-          },
-          {
-            "name": "7",
-            "value": "0x00000070"
           }
         ]
       },

@@ -8,7 +8,11 @@
 # version and the bitstream drift apart.
 set -euo pipefail
 
-MS="${1:?usage: package.sh <milestone>, e.g. M21}"
+MS="${1:?usage: package.sh <milestone>, e.g. M23 or M23-testA}"
+
+# Diagnostic packages MUST get their own milestone string. Four packages went
+# out stamped M22 and there was no way to tell from the Pocket which one was on
+# the card, which is precisely what the stamp exists to prevent.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE="$ROOT/build/sdcard/Cores/fugudaro.BrickBoy"
 RBF="$ROOT/src/output_files/ap_core.rbf"
@@ -27,6 +31,19 @@ PY
 
 cp "$ROOT/build/brickboy.rbf_r" "$CORE/"
 for f in "$ROOT"/pkg/Cores/fugudaro.BrickBoy/*; do cp "$f" "$CORE/"; done
+
+# interact.json goes on the card WITHOUT pretty-printing. The Pocket reads it
+# into a fixed buffer somewhere just over 9 KiB, and indentation is most of the
+# file - 9682 bytes formatted against 4680 the same content compact. Going over
+# does not truncate the menu, it stops the core loading, and the failure looks
+# exactly like a bad bitstream. pkg/ keeps the readable copy for editing.
+python3 - "$CORE/interact.json" <<'PYEOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+d = json.loads(p.read_text())
+p.write_text(json.dumps(d, separators=(",", ":")))
+print(f"  interact.json {p.stat().st_size} bytes")
+PYEOF
 
 python3 - "$CORE" "$BASE" "$MS" <<'PY'
 import json, pathlib, subprocess, sys

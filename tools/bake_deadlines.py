@@ -42,7 +42,10 @@ ROW_RATIO = 0.06
 DIAL_EXP = 1.8      # brickboy uses 2.2 over its full range
 DIAL_SCALE = 0.4735  # brickboy's step 5
 NATIVE_W, NATIVE_H = 160, 144
-STEPS = 8
+# Six steps, not eight. The Pocket budgets menu entries and list options
+# together - a core stops loading somewhere above 77 of them combined - so every
+# option spent here is one not available elsewhere. Six covers the range.
+STEPS = 4
 
 M32 = 0xFFFFFFFF
 
@@ -158,11 +161,11 @@ if __name__ == "__main__":
     lit = sum(1 for _, l, _, _ in cstate if l)
     print(f"\nstuck-dark columns: {lit} of 160 ({lit/160*100:.1f}%, deadLineLit {DEAD_LIT})")
     # the surveyed shape: outer 20% should hold ~39% of dropped columns
-    top = cmask[4]
+    top = cmask[STEPS - 1]
     outer = top[:32].sum() + top[-32:].sum()
     if top.sum():
         print(f"outer 20% holds {outer/top.sum()*100:.0f}% of dead columns "
-              f"at dial 4 (survey: 39%)")
+              f"at the top step (survey: 39%)")
 
     emit_mask("DL_COL_DEAD", cmask, NATIVE_W, out / "brick_dl_col.svh")
     emit_mask("DL_ROW_DEAD", rmask, NATIVE_H, out / "brick_dl_row.svh")
