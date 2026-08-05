@@ -50,7 +50,8 @@ import json, pathlib, subprocess, sys
 core, base, ms = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 p = core / "core.json"
 d = json.loads(p.read_text())
-d["core"]["metadata"]["version"] = f"{base}-{ms}"
+# "release" means ship the bare version, with no milestone suffix.
+d["core"]["metadata"]["version"] = base if ms == "release" else f"{base}-{ms}"
 d["core"]["metadata"]["date_release"] = subprocess.run(
     ["date", "+%Y-%m-%d"], capture_output=True, text=True).stdout.strip()
 p.write_text(json.dumps(d, indent=2) + "\n")
@@ -58,6 +59,7 @@ print(f'  version {d["core"]["metadata"]["version"]}')
 PY
 
 OUT="$ROOT/build/brickboy-pocket-${MS,,}.zip"
+[ "$MS" = release ] && OUT="$ROOT/build/brickboy-dmg-pocket.zip"
 rm -f "$OUT"
 (cd "$ROOT/build/sdcard" && zip -qr "$OUT" .)
 ls -l "$OUT"
