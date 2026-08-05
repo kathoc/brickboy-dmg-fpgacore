@@ -31,7 +31,16 @@ import numpy as np
 SEED = 7
 EDGE_BIAS = 1.0
 DEAD_LIT = 0.06
-ROW_RATIO = 0.15
+# The dial's range is a UI choice, not part of the model - the layout functions
+# below are brickboy's, untouched. brickboy's dial runs to ~92% of columns dead,
+# which on a 160-dot panel at 4x is past the point of being a picture at all, so
+# the top of this dial lands where brickboy's step 5 does. The row rate comes
+# down from deadLineRowRatio 0.15 as well: a dead ROW takes out a scanline of
+# every sprite on screen at once and is far more destructive than a dead column,
+# so the top of the dial gives two of them, not twenty.
+ROW_RATIO = 0.06
+DIAL_EXP = 1.8      # brickboy uses 2.2 over its full range
+DIAL_SCALE = 0.4735  # brickboy's step 5
 NATIVE_W, NATIVE_H = 160, 144
 STEPS = 8
 
@@ -95,7 +104,7 @@ def bake(span, sd, ratio):
     masks = []
     for s in range(STEPS):
         dial = s / (STEPS - 1.0)
-        sev = dial ** 2.2                      # the shader's dial curve
+        sev = dial ** DIAL_EXP * DIAL_SCALE
         masks.append(thr < sev)
     return masks, state
 

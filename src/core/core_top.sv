@@ -542,7 +542,11 @@ always_comb begin
   set_ink_r      = run_settings_s[17:15];
   set_ink_g      = run_settings_s[25:23];
   set_ink_b      = run_settings_s[28:26];
-  set_offtint    = run_settings_s[31:29];
+  // Off-element Tint sits at bits 30:29, NOT 31:29. An interact list's option
+  // values are read as signed 32-bit, so a field touching bit 31 produces a
+  // negative value (7 << 29 = 0xE0000000) and the Pocket refuses to load the
+  // core. Two bits, stepping the table by two.
+  set_offtint    = {run_settings_s[30:29], 1'b0};
   // Bits 1, 4, 5, 6 and 7 came free when SGB and Custom Palette went.
   set_deadline   = run_settings_s[6:4];
   set_refsat     = {1'b0, run_settings_s[7], run_settings_s[1]};

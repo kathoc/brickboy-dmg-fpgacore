@@ -325,40 +325,24 @@
         "enabled": true,
         "persist": true,
         "address": "0xF2000000",
-        "mask": "0x1FFFFFFF",
-        "defaultval": 2,
+        "mask": "0x9FFFFFFF",
+        "defaultval": 1,
         "options": [
           {
             "name": "Off",
             "value": "0x00000000"
           },
           {
-            "name": "1",
+            "name": "Normal",
             "value": "0x20000000"
           },
           {
-            "name": "Normal",
+            "name": "High",
             "value": "0x40000000"
           },
           {
-            "name": "3",
+            "name": "Max",
             "value": "0x60000000"
-          },
-          {
-            "name": "4",
-            "value": "0x80000000"
-          },
-          {
-            "name": "5",
-            "value": "0xA0000000"
-          },
-          {
-            "name": "6",
-            "value": "0xC0000000"
-          },
-          {
-            "name": "7",
-            "value": "0xE0000000"
           }
         ]
       },
