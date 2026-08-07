@@ -10,9 +10,9 @@
 //                    constant - the 4x4 table below is the integral of the
 //                    shader's smoothstep over each quarter of the cell, at
 //                    pixel_size 0.80 (margin 0.20). No derivatives needed.
-//   gap              bgTint * (1 - shadowOpacity*0.4). The gap shows the
-//                    reflector, NOT a dark grid line - darkening it puts a
-//                    black lattice over the light shades and reads wrong.
+//   gap              shade 0 x gapGain. No electrode covers the sheet there, so
+//                    the light takes a path at least as open as the off pixel's
+//                    and the gap can never be darker than shade 0.
 //   grid contrast    (v - 0.5)*0.95 + 0.5, then mixed in by grid.strength 0.62
 //   drop shadow      the air gap between the cell layer and the reflector. The
 //                    shader samples the pre-grid image toward the light with a
@@ -22,9 +22,8 @@
 //                    so the caster is up and to the left, which is exactly what
 //                    a line buffer already holds.
 //
-// Not yet: reflector grain (paper) and the printed mask border - the border is
-// outside the active area now that the game fills the screen, and the grain
-// needs its coarse band baked into RAM. Both are M9.
+// The printed mask border is not drawn: it falls outside the active area now
+// that the game fills the screen.
 
 (* multstyle = "logic" *)
 module brick_grid (
@@ -41,9 +40,18 @@ module brick_grid (
 	output reg  [23:0] out_rgb
 );
 
-// grid.bgTint x255, and the gap value it produces at shadowOpacity 0.6:
-//   gap = bgTint * (1 - 0.6*0.4) = bgTint * 0.76
-localparam [7:0] GAP_R = 8'd180, GAP_G = 8'd165, GAP_B = 8'd113;
+// The gap is where no electrode covers the sheet, so its light goes through
+// UN-DRIVEN LC and back off the reflector - a path at least as open as the off
+// pixel's. So the gap is shade 0 (x gapGain, 1.0 for the DMG), which makes "the
+// gap is never darker than shade 0" a structural property rather than something
+// the tuned numbers happen to satisfy.
+//
+// This was bgTint darkened by grid.shadowOpacity - bgTint * 0.76 = (180,165,113)
+// - and that was wrong twice over: bgTint is the BARE reflector, a different
+// optical path that measures DARKER than shade 0 on real hardware, and it was
+// then darkened again. The result was a dark mesh drawn over the light shades,
+// where the panel actually shows a LIGHT mesh over the dark ones.
+localparam [7:0] GAP_R = 8'd219, GAP_G = 8'd207, GAP_B = 8'd136;   // palette shade 0
 localparam [7:0] BG_R  = 8'd237, BG_G  = 8'd217, BG_B  = 8'd149;
 
 localparam [7:0] K_BASEA  = 8'd26;    // baselineAlpha 0.10

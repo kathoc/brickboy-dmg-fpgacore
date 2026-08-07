@@ -8,7 +8,8 @@
         "required": true,
         "parameters": "0x109",
         "extensions": [
-          "gb"
+          "gb",
+          "gbc"
         ],
         "address": "0x10000000"
       },
