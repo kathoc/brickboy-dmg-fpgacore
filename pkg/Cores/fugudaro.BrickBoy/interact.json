@@ -176,15 +176,24 @@
         "value": "0x00200000"
       },
       {
-        "name": "X/Y Auto-fire: REPEAT",
+        "name": "Panel Colour",
         "id": 1016,
-        "type": "check",
+        "type": "list",
         "enabled": true,
         "persist": true,
         "address": "0xF2000000",
         "mask": "0xFFBFFFFF",
-        "defaultval": "0x00000000",
-        "value": "0x00400000"
+        "defaultval": 0,
+        "options": [
+          {
+            "value": "0x00000000",
+            "name": "Nostalgia"
+          },
+          {
+            "value": "0x00400000",
+            "name": "Real (measured)"
+          }
+        ]
       },
       {
         "name": "Ink R",

@@ -29,6 +29,7 @@ module brick_color (
 	input  wire        up_tick,       // active area done: run the upward pre-pass
 	input  wire [7:0]  row_disp,      // native row entering display
 	input  wire [2:0]  set_offtint,   // off-element tint; 2 = dmg.json's 0.1
+	input  wire        set_real,     // 0 = nostalgia palette, 1 = measured
 
 	output reg  [14:0] fb_addr,
 	input  wire [1:0]  fb_q,
@@ -40,16 +41,31 @@ module brick_color (
 	output reg  [7:0]  lb_wrow
 );
 
-// dmg-real dmgPalette / grid.bgTint, x255. Measured off the owner's DMG-01
-// rather than taken from SameBoy's table, which is why the whole ramp sits
-// greener and narrower than the familiar one: a reflective panel sends outside
-// light through the iodine-PVA polariser TWICE, so its yellow-green transmission
-// is applied squared. The green is the light PATH, not the reflector.
-localparam [23:0] PAL0 = {8'd146, 8'd196, 8'd82 };
-localparam [23:0] PAL1 = {8'd69,  8'd181, 8'd71 };
-localparam [23:0] PAL2 = {8'd54,  8'd162, 8'd97 };
-localparam [23:0] PAL3 = {8'd32,  8'd147, 8'd105};
-localparam [23:0] PBG  = {8'd189, 8'd172, 8'd84 };
+// dmgPalette / grid.bgTint, x255, for both of brickboy's DMG profiles.
+//
+// dmg-real is measured off the owner's DMG-01. Its ramp sits greener and much
+// narrower than the familiar one, and both are real: a reflective panel sends
+// outside light through the iodine-PVA polariser TWICE, so its yellow-green
+// transmission applies squared - the green is the light PATH, not the reflector
+// - and the panel genuinely is that low-contrast. Which is exactly why it is
+// not the default. Accurate and legible are different targets, and a handheld
+// nobody can read is a worse answer than one that remembers slightly wrong.
+localparam [23:0] PAL0_N = {8'd219, 8'd207, 8'd136};   // nostalgia (dmg.json)
+localparam [23:0] PAL1_N = {8'd140, 8'd179, 8'd102};
+localparam [23:0] PAL2_N = {8'd71,  8'd130, 8'd66 };
+localparam [23:0] PAL3_N = {8'd33,  8'd92,  8'd43 };
+localparam [23:0] PBG_N  = {8'd237, 8'd217, 8'd149};
+localparam [23:0] PAL0_R = {8'd146, 8'd196, 8'd82 };   // measured (dmg-real)
+localparam [23:0] PAL1_R = {8'd69,  8'd181, 8'd71 };
+localparam [23:0] PAL2_R = {8'd54,  8'd162, 8'd97 };
+localparam [23:0] PAL3_R = {8'd32,  8'd147, 8'd105};
+localparam [23:0] PBG_R  = {8'd189, 8'd172, 8'd84 };
+
+wire [23:0] PAL0 = set_real ? PAL0_R : PAL0_N;
+wire [23:0] PAL1 = set_real ? PAL1_R : PAL1_N;
+wire [23:0] PAL2 = set_real ? PAL2_R : PAL2_N;
+wire [23:0] PAL3 = set_real ? PAL3_R : PAL3_N;
+wire [23:0] PBG  = set_real ? PBG_R  : PBG_N;
 
 // Q0.8 constants (dmg.json x256)
 localparam [7:0] K_BLEED    = 8'd41;    // bleed 0.16
@@ -77,7 +93,8 @@ localparam [7:0] K_SAT      = 8'd218;   // saturation 0.85
 localparam [7:0] K_WARM_R   = 8'd8;     // warm 0.06 x (0.5, 0.15, -0.4)
 localparam [7:0] K_WARM_G   = 8'd2;
 localparam [7:0] K_WARM_B   = 8'd6;     // subtracted
-localparam [7:0] K_CONTRAST = 8'd225;   // contrast 0.88
+localparam [7:0] K_CONTRAST = 8'd225;   // contrast 0.88 (both profiles)
+localparam [7:0] K_BRIGHT   = 8'd225;   // brightness 0.88, nostalgia only
 localparam [7:0] K_BLACKL   = 8'd26;    // blackLift 0.1
 localparam [7:0] K_BETA_V   = 8'd235;   // exp(-1/12)
 localparam [7:0] K_WN_V     = 8'd20;    // 1 - exp(-1/12)
@@ -556,14 +573,15 @@ reg p5_done;
 
 function automatic [7:0] tone(input [7:0] v);
 	reg signed [17:0] t;
+	reg signed [17:0] u;
 	begin
 		t = (($signed({1'b0, v}) - 18'sd128) * $signed({1'b0, K_CONTRAST})) + 18'sd128;
 		t = (t >>> 8) + 18'sd128;
 		// dmg-real's brightness is 1.0 - the owner matched the panel by eye at
-		// the end of the second measuring pass and needed no lift - so the
-		// multiply is deleted rather than written as x256. It was a real
-		// multiplier, and there is no room to spend one on returning its input.
-		tone = sat8(t);
+		// the end of the second measuring pass and needed no lift - so that
+		// profile skips the multiply outright rather than writing it as x256.
+		u = t * $signed({1'b0, K_BRIGHT}) + 18'sd128;
+		tone = set_real ? sat8(t) : sat8(u >>> 8);
 	end
 endfunction
 

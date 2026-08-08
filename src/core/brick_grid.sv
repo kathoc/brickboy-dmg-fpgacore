@@ -13,8 +13,8 @@
 //   gap              shade 0 x gapGain. No electrode covers the sheet there, so
 //                    the light takes a path at least as open as the off pixel's
 //                    and the gap can never be darker than shade 0.
-//   grid contrast    (v - 0.5)*0.95 + 0.5. dmg-real puts grid.strength at 1.0
-//                    and baselineAlpha at 0, so nothing is mixed back afterward.
+//   grid contrast    (v - 0.5)*0.95 + 0.5, then mixed in by grid.strength -
+//                    0.62 for nostalgia, 1.0 (i.e. all of it) for dmg-real.
 //   drop shadow      the air gap between the cell layer and the reflector. The
 //                    shader samples the pre-grid image toward the light with a
 //                    blur, twice (near umbra + broad penumbra). Here the caster
@@ -36,7 +36,8 @@ module brick_grid (
 	input  wire [1:0]  sx,         // sub-pixel position inside the cell
 	input  wire [1:0]  sy,
 	input  wire signed [9:0] grain, // reflector sheet grain, +-127 = +-1
-	input  wire [7:0]  grain_k,    // grain contrast; 8 = brickboy's own
+	input  wire [7:0]  grain_k,      // grain contrast; 8 = brickboy's own
+	input  wire        set_real,     // 0 = nostalgia palette, 1 = measured
 
 	output reg  [23:0] out_rgb
 );
@@ -52,21 +53,35 @@ module brick_grid (
 // optical path that measures DARKER than shade 0 on real hardware, and it was
 // then darkened again. The result was a dark mesh drawn over the light shades,
 // where the panel actually shows a LIGHT mesh over the dark ones.
-localparam [7:0] GAP_R = 8'd146, GAP_G = 8'd196, GAP_B = 8'd82;   // palette shade 0
+// The gap is shade 0, so it follows the profile's palette.
+wire [7:0] GAP_R = set_real ? 8'd146 : 8'd219;
+wire [7:0] GAP_G = set_real ? 8'd196 : 8'd207;
+wire [7:0] GAP_B = set_real ? 8'd82  : 8'd136;
+wire [7:0] BG_R  = set_real ? 8'd189 : 8'd237;
+wire [7:0] BG_G  = set_real ? 8'd172 : 8'd217;
+wire [7:0] BG_B  = set_real ? 8'd84  : 8'd149;
 
-// dmg-real drops grid.strength to 1.0 and baselineAlpha to 0, which is why
-// neither appears below. They were never physical quantities - they came from
+// strength and baselineAlpha are not physical quantities - they came from
 // libretro's look-shaders and mean "how much grid to draw", and the grid is not
 // something drawn: it is the consequence of there being no LC element there.
-// Mixing the composite back toward the plain picture at 0.62 crushed the light
-// mesh that belongs on the dark shades (measured down to +3%), and a nonzero
-// baseline tinted the dots toward the bare reflector when the dots ARE the ink.
-// So the composite is now nothing but the choice between reflector and element.
+// dmg-real therefore sets them to 1.0 and 0, leaving the composite as nothing
+// but the choice between reflector and element. Mixing back toward the plain
+// picture at 0.62 crushes the light mesh that belongs on the dark shades
+// (measured down to +3%), and a nonzero baseline tints the dots toward the bare
+// reflector when the dots ARE the ink. Nostalgia keeps both, because that mesh
+// at full strength is a large part of what made the measured profile hard to
+// read - being right about the panel and being readable are not the same thing.
+wire [7:0] K_BASEA = set_real ? 8'd0   : 8'd26;    // baselineAlpha 0 / 0.10
+// 255, not 256: mix8 shifts by 8, so full strength lands one LSB short of the
+// pure element colour. One level out of 255, against widening mix8 everywhere.
+wire [7:0] K_STR   = set_real ? 8'd255 : 8'd159;   // strength 1.0 / 0.62
 localparam [7:0] K_GRIDC  = 8'd243;   // grid contrast 0.95
 localparam [7:0] K_DROP   = 8'd87;    // shadowOpacity 0.34
-// shadowColor [0.316, 0.311, 0.177] x255 - dmg-real scales dmg.json's by 0.62
-// to sit against the measured reflector brightness.
-localparam [7:0] DROP_R = 8'd81, DROP_G = 8'd79, DROP_B = 8'd45;
+// shadowColor x255. dmg-real scales dmg.json's by 0.62 to sit against the
+// measured reflector brightness.
+wire [7:0] DROP_R = set_real ? 8'd81 : 8'd101;
+wire [7:0] DROP_G = set_real ? 8'd79 : 8'd100;
+wire [7:0] DROP_B = set_real ? 8'd45 : 8'd57;
 // finish.paper 0.01 is the TOTAL luminance sigma the profile asks for, against a
 // stored grain sigma of 1/3 - so the multiplier is 0.01 / (1/3) = 0.03, i.e.
 // grain_k = 8. It is a runtime value because the Pocket's panel resolves less
@@ -190,19 +205,21 @@ reg [7:0]  body1;
 reg [23:0] base2;
 reg [7:0]  near2, far2;
 
-// baselineAlpha 0: the element shows its own colour, untinted.
-wire [7:0] lit_r = base1[23:16];
-wire [7:0] lit_g = base1[15:8];
-wire [7:0] lit_b = base1[7:0];
+wire [7:0] lit_r = mix8(BG_R, base1[23:16], 8'd255 - K_BASEA);
+wire [7:0] lit_g = mix8(BG_G, base1[15:8],  8'd255 - K_BASEA);
+wire [7:0] lit_b = mix8(BG_B, base1[7:0],   8'd255 - K_BASEA);
 
 always @(posedge clk) begin
 	body1 <= body;
 	base2 <= base1;
 	near2 <= near1;
 	far2  <= far1;
-	// strength 1.0: the composite IS the grid, with nothing mixed back.
-	e_gap <= { gcon(GAP_R), gcon(GAP_G), gcon(GAP_B) };
-	e_dot <= { gcon(lit_r), gcon(lit_g), gcon(lit_b) };
+	e_gap <= { mix8(base1[23:16], gcon(GAP_R), K_STR),
+	           mix8(base1[15:8],  gcon(GAP_G), K_STR),
+	           mix8(base1[7:0],   gcon(GAP_B), K_STR) };
+	e_dot <= { mix8(base1[23:16], gcon(lit_r), K_STR),
+	           mix8(base1[15:8],  gcon(lit_g), K_STR),
+	           mix8(base1[7:0],   gcon(lit_b), K_STR) };
 end
 
 // ---- s1b: coverage blend + shadow amount -------------------------------------

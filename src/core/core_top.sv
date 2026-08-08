@@ -505,7 +505,7 @@ logic [31:0] boot_settings_s, run_settings_s;
 logic  [2:0] set_bright, set_warm, set_grain;
 logic  [2:0] set_ink_r, set_ink_g, set_ink_b, set_offtint, set_deadline;
 logic  [2:0] set_refsat;
-logic        speaker_en, dpad_four_way, turbo_repeat;
+logic        speaker_en, dpad_four_way, set_real;
 
 synch_3               s01 (pll_core_locked, pll_core_locked_s,  clk_ram);
 synch_3               s02 (reset_n,         reset_n_s,          clk_sys);
@@ -552,7 +552,10 @@ always_comb begin
   set_refsat     = {1'b0, run_settings_s[7], run_settings_s[1]};
   set_grain      = run_settings_s[20:18];
   dpad_four_way  = run_settings_s[21];
-  turbo_repeat   = run_settings_s[22];
+  // Panel colour. 0 is nostalgia because run_settings reads as zero until the
+  // Pocket writes the persisted value, and the profile that shipped in v0.1.0
+  // is the one a blank setting should land on. Bit 22 was X/Y Auto-fire.
+  set_real       = run_settings_s[22];
 end
 
 mf_pllbase mp1
@@ -1148,6 +1151,7 @@ brick_video brick_video (
   .set_ink_g   ( set_ink_g  ),
   .set_ink_b   ( set_ink_b  ),
   .set_grain   ( set_grain  ),
+  .set_real    ( set_real   ),
   .lcd_vsync   ( sgb_lcd_vsync  ),
 
   .hs          ( bv_hs          ),
@@ -1173,7 +1177,6 @@ brick_input brick_input (
   .clk         ( clk_sys          ),
   .reset       ( external_reset_s ),
   .four_way    ( dpad_four_way    ),
-  .repeat_mode ( turbo_repeat     ),
   .k_up        ( cont1_key_s[0]   ),
   .k_down      ( cont1_key_s[1]   ),
   .k_left      ( cont1_key_s[2]   ),

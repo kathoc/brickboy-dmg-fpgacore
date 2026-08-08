@@ -45,6 +45,7 @@ module brick_video (
 	input  wire [2:0]  set_refsat,
 	input  wire [2:0]  set_deadline,
 	input  wire [2:0]  set_grain,
+	input  wire        set_real,     // 0 = nostalgia palette, 1 = measured
 
 	output reg         hs,
 	output reg         vs,
@@ -126,6 +127,7 @@ brick_color color (
 	.up_tick     ( up_tick      ),
 	.row_disp    ( disp_row     ),
 	.set_offtint ( set_offtint  ),
+	.set_real    ( set_real     ),
 	.fb_addr     ( col_fb_addr  ),
 	.fb_q        ( col_fb_q     ),
 	.lb_waddr    ( cc_x         ),
@@ -318,6 +320,7 @@ brick_grid grid (
 	.sy       ( sy4      ),
 	.grain    ( grain_q  ),
 	.grain_k  ( grain_k  ),
+	.set_real ( set_real ),
 	.out_rgb  ( grid_rgb )
 );
 

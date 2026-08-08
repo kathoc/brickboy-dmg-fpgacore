@@ -2,10 +2,10 @@
 //
 // AUTO-FIRE
 // brickboy's A/B REPEAT holds the button, waits 500 ms, then toggles 33 ms on /
-// 33 ms off - about 15 Hz. Two modes come out of that one mechanism:
-//
-//   TURBO   fires from the moment the button goes down (no initial delay)
-//   REPEAT  brickboy's behaviour exactly: 500 ms, then the same 15 Hz
+// 33 ms off - about 15 Hz. Here it is TURBO only: the same 15 Hz, but firing
+// from the moment the button goes down. The 500 ms variant was a menu entry and
+// was spent on the panel-colour switch instead - REPEAT's initial delay only
+// makes sense for a key that also has to type one character, and X/Y do not.
 //
 // X drives A and Y drives B, so the plain A/B buttons keep working normally
 // alongside them.
@@ -19,7 +19,6 @@ module brick_input (
 	input  wire        reset,
 
 	input  wire        four_way,     // 0 = 8-way, 1 = brickboy's 4-way
-	input  wire        repeat_mode,  // 0 = TURBO, 1 = REPEAT
 
 	// raw pad, APF cont1_key order
 	input  wire        k_up, k_down, k_left, k_right,
@@ -30,50 +29,30 @@ module brick_input (
 );
 
 // 33.554432 MHz: 15 Hz is 30 half-cycles a second.
-localparam int HALF_TICKS  = 33554432 / 30;    // 1,118,481 - 33.3 ms
-localparam int DELAY_TICKS = 33554432 / 2;     // 500 ms
+localparam int HALF_TICKS = 33554432 / 30;     // 1,118,481 - 33.3 ms
 
 // ------------------------------------------------------------- auto-fire ---
 // One generator per button so X and Y are independent; each starts its own
 // clock on its own press, which is what makes tapping feel right.
 
+// Held low, the counter is parked at 0 with the output asserted, so the very
+// first press fires on the same cycle - that immediacy IS turbo.
 // X
-reg [24:0] cx;
-reg        px, ax;
+reg [20:0] cx;
+reg        px;
 always @(posedge clk) begin
-	if (reset || !k_x) begin
-		cx <= 0; px <= 1'b1; ax <= 1'b0;
-	end else if (!ax) begin
-		// waiting out the initial delay (REPEAT only; TURBO arms immediately)
-		if (!repeat_mode || cx == DELAY_TICKS - 1) begin
-			cx <= 0; ax <= 1'b1; px <= 1'b1;
-		end else begin
-			cx <= cx + 1'd1;
-		end
-	end else if (cx == HALF_TICKS - 1) begin
-		cx <= 0; px <= ~px;
-	end else begin
-		cx <= cx + 1'd1;
-	end
+	if (reset || !k_x)             begin cx <= 0; px <= 1'b1; end
+	else if (cx == HALF_TICKS - 1) begin cx <= 0; px <= ~px;  end
+	else                                 cx <= cx + 1'd1;
 end
 
 // Y
-reg [24:0] cy;
-reg        py, ay;
+reg [20:0] cy;
+reg        py;
 always @(posedge clk) begin
-	if (reset || !k_y) begin
-		cy <= 0; py <= 1'b1; ay <= 1'b0;
-	end else if (!ay) begin
-		if (!repeat_mode || cy == DELAY_TICKS - 1) begin
-			cy <= 0; ay <= 1'b1; py <= 1'b1;
-		end else begin
-			cy <= cy + 1'd1;
-		end
-	end else if (cy == HALF_TICKS - 1) begin
-		cy <= 0; py <= ~py;
-	end else begin
-		cy <= cy + 1'd1;
-	end
+	if (reset || !k_y)             begin cy <= 0; py <= 1'b1; end
+	else if (cy == HALF_TICKS - 1) begin cy <= 0; py <= ~py;  end
+	else                                 cy <= cy + 1'd1;
 end
 
 assign o_a = k_a | (k_x & px);
