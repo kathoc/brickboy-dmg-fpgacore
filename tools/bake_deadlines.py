@@ -13,7 +13,7 @@ defaults:
 
 Every one of those decisions is a pure function of the line index and the seed,
 so none of it has to be evaluated on the FPGA. The severity dial is the only
-runtime input, and it is quantised to eight steps, so the whole layout collapses
+runtime input, and it is quantised to four steps, so the whole layout collapses
 to one dead/alive bit per line per severity plus a few bytes of per-line state:
 
     DL_COL_DEAD[sev]   160-bit mask, which columns are dead at that severity
@@ -21,8 +21,8 @@ to one dead/alive bit per line per severity plus a few bytes of per-line state:
     DL_COL_STATE[col]  {lit, drop, gradient ends}
     DL_ROW_STATE[row]
 
-The shader's `sev = pow(dial, 2.2)` non-linearity is folded into the table too -
-the eight steps are the dial positions, not the internal severity.
+The dial's non-linearity is folded into the table too - SEV below holds the
+internal severity at each of the four positions, not the dial value.
 """
 
 import argparse
@@ -39,13 +39,18 @@ DEAD_LIT = 0.06
 # every sprite on screen at once and is far more destructive than a dead column,
 # so the top of the dial gives two of them, not twenty.
 ROW_RATIO = 0.06
-DIAL_EXP = 1.8      # brickboy uses 2.2 over its full range
-DIAL_SCALE = 0.4735  # brickboy's step 5
+# The severity at each dial position, written out rather than derived from a
+# curve. It used to be dial**1.8 * 0.4735, which put min at 0.0655 - already a
+# visibly damaged panel, with nothing between that and a healthy one. Min moved
+# down to half of it and mid took its place; max is unchanged. A curve that
+# lands on all three does not exist, and inventing one would only hide where the
+# steps actually are.
+SEV = [0.0, 0.032770, 0.065539, 0.4735]
 NATIVE_W, NATIVE_H = 160, 144
-# Six steps, not eight. The Pocket budgets menu entries and list options
-# together - a core stops loading somewhere above 77 of them combined - so every
-# option spent here is one not available elsewhere. Six covers the range.
-STEPS = 4
+# Four positions - none / min / mid / max. The Pocket reads interact.json into a
+# fixed buffer just over 9 KiB, so every option spent here is bytes not available
+# elsewhere, and four covers the range.
+STEPS = len(SEV)
 
 M32 = 0xFFFFFFFF
 
@@ -106,9 +111,7 @@ def bake(span, sd, ratio):
         state.append((drop, lit, ga, gb))
     masks = []
     for s in range(STEPS):
-        dial = s / (STEPS - 1.0)
-        sev = dial ** DIAL_EXP * DIAL_SCALE
-        masks.append(thr < sev)
+        masks.append(thr < SEV[s])
     return masks, state
 
 

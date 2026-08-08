@@ -12,11 +12,11 @@ widens the smoothstep edge to one pixel - so the shader itself cannot reach
 
 import numpy as np
 
-BG = np.array([0.93, 0.85, 0.586])        # grid.bgTint
+BG = np.array([0.74, 0.673, 0.329])       # grid.bgTint (dmg-real, measured)
 SHADOW_OPACITY = 0.6                       # grid.shadowOpacity
-BASELINE_ALPHA = 0.10
+BASELINE_ALPHA = 0.0                       # dmg-real
 GRID_CONTRAST = 0.95
-STRENGTH = 0.62                            # grid.strength
+STRENGTH = 1.0                             # grid.strength (dmg-real)
 PIXEL_SIZE = 0.80
 
 SCALE = 4

@@ -8,13 +8,13 @@ verify the stage against the RetroArch float reference before anything ships.
 
 import numpy as np
 
-PAL = [(219, 207, 136), (140, 179, 102), (71, 130, 66), (33, 92, 43)]
-PBG = (237, 217, 149)
+PAL = [(146, 196, 82), (69, 181, 71), (54, 162, 97), (32, 147, 105)]
+PBG = (189, 172, 84)
 
 K_BLEED, K_OFFTINT, K_XTALK = 41, 13, 44
 K_XT_GRAY, K_XT_SIGN, K_XT_CLAMP = 102, 56, 166
 K_SAT, K_WARM_R, K_WARM_G, K_WARM_B = 218, 8, 2, 6
-K_CONTRAST, K_BRIGHT, K_BLACKL = 225, 225, 26
+K_CONTRAST, K_BLACKL = 225, 26   # dmg-real brightness is 1.0, no multiply
 K_BETA_V, K_WN_V = 235, 20
 K_BETA_H, K_WN_H = 226, 30
 K_XT_EDGE = 102
@@ -52,7 +52,7 @@ def sat8(v):
 
 def tone(v):
     t = ((((v - 128) * K_CONTRAST) + 128) >> 8) + 128
-    return sat8(((t * K_BRIGHT) + 128) >> 8)
+    return sat8(t)   # brightness 1.0
 
 
 def upward_field(shades):
