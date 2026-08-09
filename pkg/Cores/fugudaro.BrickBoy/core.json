@@ -9,7 +9,7 @@
       "description": "Game Boy (BrickBoy DMG)",
       "author": "fugudaro",
       "url": "https://github.com/kathoc/openfpga-GBC-brick",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "date_release": "2026-08-01"
     },
     "framework": {
