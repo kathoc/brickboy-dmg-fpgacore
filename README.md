@@ -8,6 +8,12 @@ pass order and the constants come from brickboy's `src/display/` and
 DMG only. SGB and GBC were removed from the upstream core, and the freed
 resources went into the panel model.
 
+## MiSTer port
+
+A self-contained MiSTer port, build instructions, and a ready-to-install RBF
+are available in [`MiSTer/`](MiSTer/). The tested release bitstream is kept in
+the obvious [`MiSTer/RELEASE/`](MiSTer/RELEASE/) directory.
+
 ## What it does
 
 The Pocket renders the game at 4x — one Game Boy dot becomes a 4x4 block — and
